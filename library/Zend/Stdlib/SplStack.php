@@ -1,47 +1,29 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Stdlib
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Stdlib
  */
 
-/**
- * @namespace
- */
 namespace Zend\Stdlib;
+
+use Serializable;
 
 /**
  * Serializable version of SplStack
  *
  * @category   Zend
  * @package    Zend_Stdlib
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-class SplStack extends \SplStack
+class SplStack extends \SplStack implements Serializable
 {
     /**
-     * @var array Used in serialization
-     */
-    private $_data = array();
-
-    /**
      * Serialize to an array representing the stack
-     * 
-     * @return void
+     *
+     * @return array
      */
     public function toArray()
     {
@@ -54,25 +36,24 @@ class SplStack extends \SplStack
 
     /**
      * Serialize
-     * 
-     * @return array
+     *
+     * @return string
      */
-    public function __sleep()
+    public function serialize()
     {
-        $this->_data = $this->toArray();
-        return array('_data');
+        return serialize($this->toArray());
     }
 
     /**
      * Unserialize
-     * 
+     *
+     * @param  string $data
      * @return void
      */
-    public function __wakeup()
+    public function unserialize($data)
     {
-        foreach ($this->_data as $item) {
+        foreach (unserialize($data) as $item) {
             $this->unshift($item);
         }
-        $this->_data = array();
     }
 }

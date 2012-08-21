@@ -1,96 +1,208 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Filter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Filter
  */
 
-/**
- * @namespace
- */
 namespace Zend\Filter;
 
+use Countable;
+use Zend\Stdlib\PriorityQueue;
+
 /**
- * @uses       Zend\Filter\Exception
- * @uses       Zend\Filter\AbstractFilter
- * @uses       Zend\Loader
  * @category   Zend
  * @package    Zend_Filter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-class FilterChain extends AbstractFilter
+class FilterChain extends AbstractFilter implements Countable
 {
-    const CHAIN_APPEND  = 'append';
-    const CHAIN_PREPEND = 'prepend';
+    /**
+     * Default priority at which filters are added
+     */
+    const DEFAULT_PRIORITY = 1000;
+
+    /**
+     * @var FilterPluginManager
+     */
+    protected $plugins;
 
     /**
      * Filter chain
      *
-     * @var array
+     * @var PriorityQueue
      */
-    protected $_filters = array();
+    protected $filters;
 
     /**
-     * Adds a filter to the chain
+     * Initialize filter chain
      *
-     * @param  \Zend\Filter\Filter $filter
-     * @param  string $placement
-     * @return \Zend\Filter\FilterChain Provides a fluent interface
      */
-    public function addFilter(Filter $filter, $placement = self::CHAIN_APPEND)
+    public function __construct($options = null)
     {
-        if ($placement == self::CHAIN_PREPEND) {
-            array_unshift($this->_filters, $filter);
-        } else {
-            $this->_filters[] = $filter;
+        $this->filters = new PriorityQueue();
+
+        if (null !== $options) {
+            $this->setOptions($options);
         }
+    }
+
+    public function setOptions($options)
+    {
+        if (!is_array($options) && !$options instanceof \Traversable) {
+            throw new Exception\InvalidArgumentException(sprintf(
+                'Expected array or Traversable; received "%s"',
+                (is_object($options) ? get_class($options) : gettype($options))
+            ));
+        }
+
+        foreach ($options as $key => $value) {
+            switch (strtolower($key)) {
+                case 'callbacks':
+                    foreach ($value as $spec) {
+                        $callback = isset($spec['callback']) ? $spec['callback'] : false;
+                        $priority = isset($spec['priority']) ? $spec['priority'] : static::DEFAULT_PRIORITY;
+                        if ($callback) {
+                            $this->attach($callback, $priority);
+                        }
+                    }
+                    break;
+                case 'filters':
+                    foreach ($value as $spec) {
+                        $name     = isset($spec['name'])     ? $spec['name']     : false;
+                        $options  = isset($spec['options'])  ? $spec['options']  : array();
+                        $priority = isset($spec['priority']) ? $spec['priority'] : static::DEFAULT_PRIORITY;
+                        if ($name) {
+                            $this->attachByName($name, $options, $priority);
+                        }
+                    }
+                    break;
+                default:
+                    // ignore other options
+                    break;
+            }
+        }
+
         return $this;
     }
 
     /**
-     * Add a filter to the end of the chain
+     * Return the count of attached filters
      *
-     * @param  \Zend\Filter\Filter $filter
-     * @return \Zend\Filter\FilterChain Provides a fluent interface
+     * @return int
      */
-    public function appendFilter(Filter $filter)
+    public function count()
     {
-        return $this->addFilter($filter, self::CHAIN_APPEND);
+        return count($this->filters);
     }
 
     /**
-     * Add a filter to the start of the chain
+     * Get plugin manager instance
      *
-     * @param  \Zend\Filter\Filter $filter
-     * @return \Zend\Filter\FilterChain Provides a fluent interface
+     * @return FilterPluginManager
      */
-    public function prependFilter(Filter $filter)
+    public function getPluginManager()
     {
-        return $this->addFilter($filter, self::CHAIN_PREPEND);
+        if (!$this->plugins) {
+            $this->setPluginManager(new FilterPluginManager());
+        }
+        return $this->plugins;
+    }
+
+    /**
+     * Set plugin manager instance
+     *
+     * @param  FilterPluginManager $plugins
+     * @return FilterChain
+     */
+    public function setPluginManager(FilterPluginManager $plugins)
+    {
+        $this->plugins = $plugins;
+        return $this;
+    }
+
+    /**
+     * Retrieve a filter plugin by name
+     *
+     * @param  mixed $name
+     * @param  array $options
+     * @return Filter
+     */
+    public function plugin($name, array $options = array())
+    {
+        $plugins = $this->getPluginManager();
+        return $plugins->get($name, $options);
+    }
+
+    /**
+     * Attach a filter to the chain
+     *
+     * @param  callable|FilterInterface $callback A Filter implementation or valid PHP callback
+     * @param  int $priority Priority at which to enqueue filter; defaults to 1000 (higher executes earlier)
+     * @return FilterChain
+     */
+    public function attach($callback, $priority = self::DEFAULT_PRIORITY)
+    {
+        if (!is_callable($callback)) {
+            if (!$callback instanceof FilterInterface) {
+                throw new Exception\InvalidArgumentException(sprintf(
+                    'Expected a valid PHP callback; received "%s"',
+                    (is_object($callback) ? get_class($callback) : gettype($callback))
+                ));
+            }
+            $callback = array($callback, 'filter');
+        }
+        $this->filters->insert($callback, $priority);
+        return $this;
+    }
+
+    /**
+     * Attach a filter to the chain using a short name
+     *
+     * Retrieves the filter from the attached plugin broker, and then calls attach()
+     * with the retrieved instance.
+     *
+     * @param  string $name
+     * @param  mixed $options
+     * @param  int $priority Priority at which to enqueue filter; defaults to 1000 (higher executes earlier)
+     * @return FilterChain
+     */
+    public function attachByName($name, $options = array(), $priority = self::DEFAULT_PRIORITY)
+    {
+        if (!is_array($options)) {
+            $options = (array) $options;
+        } elseif (empty($options)) {
+            $options = null;
+        }
+        $filter = $this->getPluginManager()->get($name, $options);
+        return $this->attach($filter, $priority);
+    }
+
+    /**
+     * Merge the filter chain with the one given in parameter
+     *
+     * @param FilterChain $filterChain
+     * @return FilterChain
+     */
+    public function merge(FilterChain $filterChain)
+    {
+        foreach ($filterChain->filters as $filter) {
+            $this->attach($filter);
+        }
+
+        return $this;
     }
 
     /**
      * Get all the filters
      *
-     * @return Filter[]
+     * @return PriorityQueue
      */
     public function getFilters()
     {
-        return $this->_filters;
+        return $this->filters;
     }
 
     /**
@@ -103,10 +215,13 @@ class FilterChain extends AbstractFilter
      */
     public function filter($value)
     {
+        $chain = clone $this->filters;
+
         $valueFiltered = $value;
-        foreach ($this->_filters as $filter) {
-            $valueFiltered = $filter->filter($valueFiltered);
+        foreach ($chain as $filter) {
+            $valueFiltered = call_user_func($filter, $valueFiltered);
         }
+
         return $valueFiltered;
     }
 }

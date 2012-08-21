@@ -1,48 +1,29 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Validate
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Validator
  */
 
-/**
- * @namespace
- */
 namespace Zend\Validator\Db;
 
-use Zend\Validator\AbstractValidator,
-    Zend\Validator\Exception as ValidatorException,
-    Zend\Config\Config,
-    Zend\Db\Db,
-    Zend\Db\Adapter\AbstractAdapter as AbstractDBAdapter,
-    Zend\Db\Table\AbstractTable as AbstractTable,
-    Zend\Db\Select as DBSelect;
+use Traversable;
+use Zend\Db\Adapter\Adapter as DbAdapter;
+use Zend\Db\Adapter\Driver\DriverInterface as DbDriverInterface;
+use Zend\Db\Sql\Select as DbSelect;
+use Zend\Db\Sql\TableIdentifier;
+use Zend\Stdlib\ArrayUtils;
+use Zend\Validator\AbstractValidator;
+use Zend\Validator\Exception;
 
 /**
  * Class for Database record validation
  *
- * @uses       \Zend\Db\Db
- * @uses       \Zend\Db\Select
- * @uses       \Zend\Db\Table\AbstractTable
- * @uses       \Zend\Validator\AbstractValidator
- * @uses       \Zend\Validator\Exception
  * @category   Zend
  * @package    Zend_Validate
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
 abstract class AbstractDb extends AbstractValidator
 {
@@ -55,40 +36,47 @@ abstract class AbstractDb extends AbstractValidator
     /**
      * @var array Message templates
      */
-    protected $_messageTemplates = array(
-        self::ERROR_NO_RECORD_FOUND => "No record matching '%value%' was found",
-        self::ERROR_RECORD_FOUND    => "A record matching '%value%' was found",
+    protected $messageTemplates = array(
+        self::ERROR_NO_RECORD_FOUND => "No record matching the input was found",
+        self::ERROR_RECORD_FOUND    => "A record matching the input was found",
     );
 
     /**
-     * @var string
+     * Select object to use. can be set, or will be auto-generated
+     *
+     * @var DbSelect
      */
-    protected $_schema = null;
+    protected $select;
 
     /**
      * @var string
      */
-    protected $_table = '';
+    protected $schema = null;
 
     /**
      * @var string
      */
-    protected $_field = '';
+    protected $table = '';
+
+    /**
+     * @var string
+     */
+    protected $field = '';
 
     /**
      * @var mixed
      */
-    protected $_exclude = null;
+    protected $exclude = null;
 
     /**
-     * Database adapter to use. If null isValid() will use Zend_Db::getInstance instead
+     * Database adapter to use. If null isValid() will throw an exception
      *
-     * @var unknown_type
+     * @var \Zend\Db\Adapter\Adapter
      */
-    protected $_adapter = null;
+    protected $adapter = null;
 
     /**
-     * Provides basic configuration for use with Zend_Validate_Db Validators
+     * Provides basic configuration for use with Zend\Validator\Db Validators
      * Setting $exclude allows a single record to be excluded from matching.
      * Exclude can either be a String containing a where clause, or an array with `field` and `value` keys
      * to define the where clause added to the sql.
@@ -101,16 +89,31 @@ abstract class AbstractDb extends AbstractValidator
      * 'exclude' => An optional where clause or field/value pair to exclude from the query
      * 'adapter' => An optional database adapter to use
      *
-     * @param array|\Zend\Config\Config $options Options to use for this validator
+     * @param array|Traversable|DbSelect $options Options to use for this validator
+     * @throws \Zend\Validator\Exception\InvalidArgumentException
      */
-    public function __construct($options)
+    public function __construct($options = null)
     {
-        if ($options instanceof Config) {
-            $options = $options->toArray();
-        } else if (func_num_args() > 1) {
+        parent::__construct();
+
+        if ($options instanceof DbSelect) {
+            $this->setSelect($options);
+            return;
+        }
+
+        if ($options instanceof Traversable) {
+            $options = ArrayUtils::iteratorToArray($options);
+        } elseif (func_num_args() > 1) {
             $options       = func_get_args();
-            $temp['table'] = array_shift($options);
+            $firstArgument = array_shift($options);
+            if (is_array($firstArgument)) {
+                $temp = ArrayUtils::iteratorToArray($firstArgument);
+            } else {
+                $temp['table'] = $firstArgument;
+            }
+
             $temp['field'] = array_shift($options);
+
             if (!empty($options)) {
                 $temp['exclude'] = array_shift($options);
             }
@@ -123,11 +126,11 @@ abstract class AbstractDb extends AbstractValidator
         }
 
         if (!array_key_exists('table', $options) && !array_key_exists('schema', $options)) {
-            throw new ValidatorException('Table or Schema option missing!');
+            throw new Exception\InvalidArgumentException('Table or Schema option missing!');
         }
 
         if (!array_key_exists('field', $options)) {
-            throw new ValidatorException('Field option missing!');
+            throw new Exception\InvalidArgumentException('Field option missing!');
         }
 
         if (array_key_exists('adapter', $options)) {
@@ -151,26 +154,23 @@ abstract class AbstractDb extends AbstractValidator
     /**
      * Returns the set adapter
      *
-     * @return Zend_Db_Adapter
+     * @throws \Zend\Validator\Exception\RuntimeException When no database adapter is defined
+     * @return DbAdapter
      */
     public function getAdapter()
     {
-        return $this->_adapter;
+        return $this->adapter;
     }
 
     /**
      * Sets a new database adapter
      *
-     * @param  \Zend\Db\Adapter\AbstractAdapter $adapter
-     * @return \Zend\Validator\Db\AbstractDb
+     * @param  DbAdapter $adapter
+     * @return self Provides a fluent interface
      */
-    public function setAdapter($adapter)
+    public function setAdapter(DbAdapter $adapter)
     {
-        if (!($adapter instanceof AbstractdBAdapter)) {
-            throw new ValidatorException('Adapter option must be a database adapter!');
-        }
-
-        $this->_adapter = $adapter;
+        $this->adapter = $adapter;
         return $this;
     }
 
@@ -181,18 +181,18 @@ abstract class AbstractDb extends AbstractValidator
      */
     public function getExclude()
     {
-        return $this->_exclude;
+        return $this->exclude;
     }
 
     /**
      * Sets a new exclude clause
      *
      * @param string|array $exclude
-     * @return \Zend\Validator\Db\AbstractDb
+     * @return self Provides a fluent interface
      */
     public function setExclude($exclude)
     {
-        $this->_exclude = $exclude;
+        $this->exclude = $exclude;
         return $this;
     }
 
@@ -203,18 +203,18 @@ abstract class AbstractDb extends AbstractValidator
      */
     public function getField()
     {
-        return $this->_field;
+        return $this->field;
     }
 
     /**
      * Sets a new field
      *
      * @param string $field
-     * @return \Zend\Validator\Db\AbstractDb
+     * @return AbstractDb
      */
     public function setField($field)
     {
-        $this->_field = (string) $field;
+        $this->field = (string)$field;
         return $this;
     }
 
@@ -225,18 +225,18 @@ abstract class AbstractDb extends AbstractValidator
      */
     public function getTable()
     {
-        return $this->_table;
+        return $this->table;
     }
 
     /**
      * Sets a new table
      *
      * @param string $table
-     * @return \Zend\Validator\Db\AbstractDb
+     * @return self Provides a fluent interface
      */
     public function setTable($table)
     {
-        $this->_table = (string) $table;
+        $this->table = (string)$table;
         return $this;
     }
 
@@ -247,59 +247,97 @@ abstract class AbstractDb extends AbstractValidator
      */
     public function getSchema()
     {
-        return $this->_schema;
+        return $this->schema;
     }
 
     /**
      * Sets a new schema
      *
      * @param string $schema
-     * @return \Zend\Validator\Db\AbstractDb
+     * @return self Provides a fluent interface
      */
     public function setSchema($schema)
     {
-        $this->_schema = $schema;
+        $this->schema = $schema;
         return $this;
+    }
+
+    /**
+     * Sets the select object to be used by the validator
+     *
+     * @param  DbSelect $select
+     * @return self Provides a fluent interface
+     */
+    public function setSelect(DbSelect $select)
+    {
+        $this->select = $select;
+        return $this;
+    }
+
+    /**
+     * Gets the select object to be used by the validator.
+     * If no select object was supplied to the constructor,
+     * then it will auto-generate one from the given table,
+     * schema, field, and adapter options.
+     *
+     * @return DbSelect The Select object which will be used
+     */
+    public function getSelect()
+    {
+        if (null === $this->select) {
+            $adapter  = $this->getAdapter();
+            $driver   = $adapter->getDriver();
+            $platform = $adapter->getPlatform();
+
+            /**
+             * Build select object
+             */
+            $select = new DbSelect();
+            $tableIdentifier = new TableIdentifier($this->table, $this->schema);
+            $select->from($tableIdentifier)->columns(
+                array($this->field)
+            );
+
+            // Support both named and positional parameters
+            if (DbDriverInterface::PARAMETERIZATION_NAMED == $driver->getPrepareType()) {
+                $select->where(
+                    $platform->quoteIdentifier($this->field, true) . ' = :value'
+                );
+            } else {
+                $select->where(
+                    $platform->quoteIdentifier($this->field, true) . ' = ?'
+                );
+            }
+
+            if ($this->exclude !== null) {
+                if (is_array($this->exclude)) {
+                    $select->where(
+                        $platform->quoteIdentifier($this->exclude['field'], true) .
+                        ' != ?', $this->exclude['value']
+                    );
+                } else {
+                    $select->where($this->exclude);
+                }
+            }
+
+            $this->select = $select;
+        }
+
+        return $this->select;
     }
 
     /**
      * Run query and returns matches, or null if no matches are found.
      *
-     * @param  String $value
-     * @return Array when matches are found.
+     * @param  string $value
+     * @return array when matches are found.
      */
-    protected function _query($value)
+    protected function query($value)
     {
-        /**
-         * Check for an adapter being defined. if not, fetch the default adapter.
-         */
-        if ($this->_adapter === null) {
-            $this->_adapter = AbstractTable::getDefaultAdapter();
-            if (null === $this->_adapter) {
-                throw new ValidatorException('No database adapter present');
-            }
-        }
+        $adapter  = $this->getAdapter();
+        $statement = $adapter->createStatement();
+        $this->getSelect()->prepareStatement($adapter, $statement);
 
-        /**
-         * Build select object
-         */
-        $select = new DBSelect($this->_adapter);
-        $select->from($this->_table, array($this->_field), $this->_schema)
-               ->where($this->_adapter->quoteIdentifier($this->_field, true).' = ?', $value);
-        if ($this->_exclude !== null) {
-            if (is_array($this->_exclude)) {
-                $select->where($this->_adapter->quoteIdentifier($this->_exclude['field'], true).' != ?', $this->_exclude['value']);
-            } else {
-                $select->where($this->_exclude);
-            }
-        }
-        $select->limit(1);
-
-        /**
-         * Run query
-         */
-        $result = $this->_adapter->fetchRow($select, array(), Db::FETCH_ASSOC);
-
-        return $result;
+        return $statement->execute(array('value' => $value))->current();
     }
 }

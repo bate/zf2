@@ -1,40 +1,23 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Mime
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Mime
  */
 
-/**
- * @namespace
- */
 namespace Zend\Mime;
 
 /**
  * Class representing a MIME part.
  *
- * @uses       \Zend\Mime\Mime
- * @uses       \Zend\Mime\Exception
  * @category   Zend
  * @package    Zend_Mime
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-class Part {
-
+class Part
+{
     public $type = Mime::TYPE_OCTETSTREAM;
     public $encoding = Mime::ENCODING_8BIT;
     public $id;
@@ -45,8 +28,8 @@ class Part {
     public $boundary;
     public $location;
     public $language;
-    protected $_content;
-    protected $_isStream = false;
+    protected $content;
+    protected $isStream = false;
 
 
     /**
@@ -58,9 +41,9 @@ class Part {
      */
     public function __construct($content)
     {
-        $this->_content = $content;
+        $this->content = $content;
         if (is_resource($content)) {
-            $this->_isStream = true;
+            $this->isStream = true;
         }
     }
 
@@ -80,7 +63,7 @@ class Part {
      */
     public function isStream()
     {
-      return $this->_isStream;
+      return $this->isStream;
     }
 
     /**
@@ -88,19 +71,19 @@ class Part {
      * reading the content. very useful for large file attachments.
      *
      * @return stream
-     * @throws \Zend\Mime\Exception if not a stream or unable to append filter
+     * @throws Exception\RuntimeException if not a stream or unable to append filter
      */
     public function getEncodedStream()
     {
-        if (!$this->_isStream) {
-            throw new Exception('Attempt to get a stream from a string part');
+        if (!$this->isStream) {
+            throw new Exception\RuntimeException('Attempt to get a stream from a string part');
         }
 
         //stream_filter_remove(); // ??? is that right?
         switch ($this->encoding) {
             case Mime::ENCODING_QUOTEDPRINTABLE:
                 $filter = stream_filter_append(
-                    $this->_content,
+                    $this->content,
                     'convert.quoted-printable-encode',
                     STREAM_FILTER_READ,
                     array(
@@ -109,12 +92,12 @@ class Part {
                     )
                 );
                 if (!is_resource($filter)) {
-                    throw new Exception('Failed to append quoted-printable filter');
+                    throw new Exception\RuntimeException('Failed to append quoted-printable filter');
                 }
                 break;
             case Mime::ENCODING_BASE64:
                 $filter = stream_filter_append(
-                    $this->_content,
+                    $this->content,
                     'convert.base64-encode',
                     STREAM_FILTER_READ,
                     array(
@@ -123,12 +106,12 @@ class Part {
                     )
                 );
                 if (!is_resource($filter)) {
-                    throw new Exception('Failed to append base64 filter');
+                    throw new Exception\RuntimeException('Failed to append base64 filter');
                 }
                 break;
             default:
         }
-        return $this->_content;
+        return $this->content;
     }
 
     /**
@@ -138,10 +121,23 @@ class Part {
      */
     public function getContent($EOL = Mime::LINEEND)
     {
-        if ($this->_isStream) {
+        if ($this->isStream) {
             return stream_get_contents($this->getEncodedStream());
         } else {
-            return Mime::encode($this->_content, $this->encoding, $EOL);
+            return Mime::encode($this->content, $this->encoding, $EOL);
+        }
+    }
+
+    /**
+     * Get the RAW unencoded content from this part
+     * @return string
+     */
+    public function getRawContent()
+    {
+        if ($this->isStream) {
+            return stream_get_contents($this->content);
+        } else {
+            return $this->content;
         }
     }
 
@@ -191,7 +187,7 @@ class Part {
             $headers[] = array('Content-Location', $this->location);
         }
 
-        if ($this->language){
+        if ($this->language) {
             $headers[] = array('Content-Language', $this->language);
         }
 

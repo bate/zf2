@@ -1,28 +1,24 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend
- * @subpackage UnitTests
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend
  */
 
 /*
  * Set error reporting to the level to which Zend Framework code must comply.
  */
 error_reporting( E_ALL | E_STRICT );
+
+$phpUnitVersion = PHPUnit_Runner_Version::id();
+if ('@package_version@' !== $phpUnitVersion && version_compare($phpUnitVersion, '3.6.0', '<')) {
+    echo 'This version of PHPUnit (' . PHPUnit_Runner_Version::id() . ') is not supported in Zend Framework 2.x unit tests.' . PHP_EOL;
+    exit(1);
+}
+unset($phpUnitVersion);
 
 /*
  * Determine the root, library, and tests directories of the framework
@@ -60,25 +56,26 @@ if (is_readable($zfCoreTests . DIRECTORY_SEPARATOR . 'TestConfiguration.php')) {
     require_once $zfCoreTests . DIRECTORY_SEPARATOR . 'TestConfiguration.php.dist';
 }
 
-if (defined('TESTS_GENERATE_REPORT') && TESTS_GENERATE_REPORT === true &&
-    version_compare(PHPUnit_Runner_Version::id(), '3.1.6', '>=')) {
+if (defined('TESTS_GENERATE_REPORT') && TESTS_GENERATE_REPORT === true) {
+    $codeCoverageFilter = new PHP_CodeCoverage_Filter();
 
-    /*
-     * Add Zend Framework library/ directory to the PHPUnit code coverage
-     * whitelist. This has the effect that only production code source files
-     * appear in the code coverage report and that all production code source
-     * files, even those that are not covered by a test yet, are processed.
-     */
-    PHPUnit_Util_Filter::addDirectoryToWhitelist($zfCoreLibrary);
+    $lastArg = end($_SERVER['argv']);
+    if (is_dir($zfCoreTests . '/' . $lastArg)) {
+        $codeCoverageFilter->addDirectoryToWhitelist($zfCoreLibrary . '/' . $lastArg);
+    } elseif (is_file($zfCoreTests . '/' . $lastArg)) {
+        $codeCoverageFilter->addDirectoryToWhitelist(dirname($zfCoreLibrary . '/' . $lastArg));
+    } else {
+        $codeCoverageFilter->addDirectoryToWhitelist($zfCoreLibrary);
+    }
 
     /*
      * Omit from code coverage reports the contents of the tests directory
      */
-    foreach (array('.php', '.phtml', '.csv', '.inc') as $suffix) {
-        PHPUnit_Util_Filter::addDirectoryToFilter($zfCoreTests, $suffix);
-    }
-    PHPUnit_Util_Filter::addDirectoryToFilter(PEAR_INSTALL_DIR);
-    PHPUnit_Util_Filter::addDirectoryToFilter(PHP_LIBDIR);
+    $codeCoverageFilter->addDirectoryToBlacklist($zfCoreTests, '');
+    $codeCoverageFilter->addDirectoryToBlacklist(PEAR_INSTALL_DIR, '');
+    $codeCoverageFilter->addDirectoryToBlacklist(PHP_LIBDIR, '');
+
+    unset($codeCoverageFilter);
 }
 
 

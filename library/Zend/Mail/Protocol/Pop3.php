@@ -1,36 +1,19 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Mail
- * @subpackage Protocol
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Mail
  */
 
-/**
- * @namespace
- */
 namespace Zend\Mail\Protocol;
 
 /**
- * @uses       \Zend\Mail\Protocol\Exception
  * @category   Zend
  * @package    Zend_Mail
  * @subpackage Protocol
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
 class Pop3
 {
@@ -49,13 +32,13 @@ class Pop3
      * socket to pop3
      * @var null|resource
      */
-    protected $_socket;
+    protected $socket;
 
     /**
      * greeting timestamp for apop
      * @var null|string
      */
-    protected $_timestamp;
+    protected $timestamp;
 
 
     /**
@@ -88,8 +71,8 @@ class Pop3
      * @param  string      $host  hostname or IP address of POP3 server
      * @param  int|null    $port  of POP3 server, default is 110 (995 for ssl)
      * @param  string|bool $ssl   use 'SSL', 'TLS' or false
+     * @throws Exception\RuntimeException
      * @return string welcome message
-     * @throws \Zend\Mail\Protocol\Exception
      */
     public function connect($host, $port = null, $ssl = false)
     {
@@ -103,27 +86,27 @@ class Pop3
 
         $errno  =  0;
         $errstr = '';
-        $this->_socket = @fsockopen($host, $port, $errno, $errstr, self::TIMEOUT_CONNECTION);
-        if (!$this->_socket) {
-            throw new Exception('cannot connect to host; error = ' . $errstr
+        $this->socket = @fsockopen($host, $port, $errno, $errstr, self::TIMEOUT_CONNECTION);
+        if (!$this->socket) {
+            throw new Exception\RuntimeException('cannot connect to host; error = ' . $errstr
                                 . ' (errno = ' . $errno . ' )');
         }
 
         $welcome = $this->readResponse();
 
         strtok($welcome, '<');
-        $this->_timestamp = strtok('>');
-        if (!strpos($this->_timestamp, '@')) {
-            $this->_timestamp = null;
+        $this->timestamp = strtok('>');
+        if (!strpos($this->timestamp, '@')) {
+            $this->timestamp = null;
         } else {
-            $this->_timestamp = '<' . $this->_timestamp . '>';
+            $this->timestamp = '<' . $this->timestamp . '>';
         }
 
         if ($ssl === 'TLS') {
             $this->request('STLS');
-            $result = stream_socket_enable_crypto($this->_socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            $result = stream_socket_enable_crypto($this->socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
             if (!$result) {
-                throw new Exception('cannot enable TLS');
+                throw new Exception\RuntimeException('cannot enable TLS');
             }
         }
 
@@ -135,14 +118,13 @@ class Pop3
      * Send a request
      *
      * @param string $request your request without newline
-     * @return null
-     * @throws \Zend\Mail\Protocol\Exception
+     * @throws Exception\RuntimeException
      */
     public function sendRequest($request)
     {
-        $result = @fputs($this->_socket, $request . "\r\n");
+        $result = @fputs($this->socket, $request . "\r\n");
         if (!$result) {
-            throw new Exception('send failed - connection closed?');
+            throw new Exception\RuntimeException('send failed - connection closed?');
         }
     }
 
@@ -151,14 +133,14 @@ class Pop3
      * read a response
      *
      * @param  boolean $multiline response has multiple lines and should be read until "<nl>.<nl>"
+     * @throws Exception\RuntimeException
      * @return string response
-     * @throws \Zend\Mail\Protocol\Exception
      */
     public function readResponse($multiline = false)
     {
-        $result = @fgets($this->_socket);
+        $result = @fgets($this->socket);
         if (!is_string($result)) {
-            throw new Exception('read failed - connection closed?');
+            throw new Exception\RuntimeException('read failed - connection closed?');
         }
 
         $result = trim($result);
@@ -170,18 +152,18 @@ class Pop3
         }
 
         if ($status != '+OK') {
-            throw new Exception('last request failed');
+            throw new Exception\RuntimeException('last request failed');
         }
 
         if ($multiline) {
             $message = '';
-            $line = fgets($this->_socket);
+            $line = fgets($this->socket);
             while ($line && rtrim($line, "\r\n") != '.') {
                 if ($line[0] == '.') {
                     $line = substr($line, 1);
                 }
                 $message .= $line;
-                $line = fgets($this->_socket);
+                $line = fgets($this->socket);
             };
         }
 
@@ -190,10 +172,10 @@ class Pop3
 
 
     /**
-     * Send request and get resposne
+     * Send request and get response
      *
-     * @see sendRequest(), readResponse()
-     *
+     * @see sendRequest()
+     * @see readResponse()
      * @param  string $request    request
      * @param  bool   $multiline  multiline response?
      * @return string             result from readResponse()
@@ -207,23 +189,19 @@ class Pop3
 
     /**
      * End communication with POP3 server (also closes socket)
-     *
-     * @return null
      */
     public function logout()
     {
-        if (!$this->_socket) {
-            return;
-        }
+        if ($this->socket) {
+            try {
+                $this->request('QUIT');
+            } catch (Exception\ExceptionInterface $e) {
+                // ignore error - we're closing the socket anyway
+            }
 
-        try {
-            $this->request('QUIT');
-        } catch (Exception $e) {
-            // ignore error - we're closing the socket anyway
+            fclose($this->socket);
+            $this->socket = null;
         }
-
-        fclose($this->_socket);
-        $this->_socket = null;
     }
 
 
@@ -242,18 +220,16 @@ class Pop3
     /**
      * Login to POP3 server. Can use APOP
      *
-     * @param  string $user      username
-     * @param  string $password  password
-     * @param  bool   $try_apop  should APOP be tried?
-     * @return void
+     * @param  string $user     username
+     * @param  string $password password
+     * @param  bool   $tryApop  should APOP be tried?
      */
     public function login($user, $password, $tryApop = true)
     {
-        if ($tryApop && $this->_timestamp) {
+        if ($tryApop && $this->timestamp) {
             try {
-                $this->request("APOP $user " . md5($this->_timestamp . $password));
-                return;
-            } catch (Exception $e) {
+                $this->request("APOP $user " . md5($this->timestamp . $password));
+            } catch (Exception\ExceptionInterface $e) {
                 // ignore
             }
         }
@@ -267,8 +243,7 @@ class Pop3
      * Make STAT call for message count and size sum
      *
      * @param  int $messages  out parameter with count of messages
-     * @param  int $octets    out parameter with size in octects of messages
-     * @return void
+     * @param  int $octets    out parameter with size in octets of messages
      */
     public function status(&$messages, &$octets)
     {
@@ -343,14 +318,15 @@ class Pop3
      * Make TOP call for getting headers and maybe some body lines
      * This method also sets hasTop - before it it's not known if top is supported
      *
-     * The fallback makes normale RETR call, which retrieves the whole message. Additional
+     * The fallback makes normal RETR call, which retrieves the whole message. Additional
      * lines are not removed.
      *
      * @param  int  $msgno    number of message
      * @param  int  $lines    number of wanted body lines (empty line is inserted after header lines)
      * @param  bool $fallback fallback with full retrieve if top is not supported
+     * @throws Exception\RuntimeException
+     * @throws Exception\ExceptionInterface
      * @return string message headers with wanted body lines
-     * @throws \Zend\Mail\Protocol\Exception
      */
     public function top($msgno, $lines = 0, $fallback = false)
     {
@@ -358,7 +334,7 @@ class Pop3
             if ($fallback) {
                 return $this->retrieve($msgno);
             } else {
-                throw new Exception('top not supported and no fallback wanted');
+                throw new Exception\RuntimeException('top not supported and no fallback wanted');
             }
         }
         $this->hasTop = true;
@@ -367,7 +343,7 @@ class Pop3
 
         try {
             $result = $this->request("TOP $msgno $lines", true);
-        } catch (Exception $e) {
+        } catch (Exception\ExceptionInterface $e) {
             $this->hasTop = false;
             if ($fallback) {
                 $result = $this->retrieve($msgno);
@@ -394,8 +370,6 @@ class Pop3
 
     /**
      * Make a NOOP call, maybe needed for keeping the server happy
-     *
-     * @return null
      */
     public function noop()
     {
@@ -406,7 +380,7 @@ class Pop3
     /**
      * Make a DELE count to remove a message
      *
-     * @return null
+     * @param $msgno
      */
     public function delete($msgno)
     {
@@ -416,8 +390,6 @@ class Pop3
 
     /**
      * Make RSET call, which rollbacks delete requests
-     *
-     * @return null
      */
     public function undelete()
     {

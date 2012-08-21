@@ -1,30 +1,18 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Http
- * @subpackage Client_Adapter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Http
  */
 
-/**
- * @namespace
- */
 namespace Zend\Http\Client\Adapter;
-use Zend\Http\Client\Adapter as HTTPAdapter,
-    Zend\Http\Response;
+
+use Traversable;
+use Zend\Http\Response;
+use Zend\Stdlib\ArrayUtils;
 
 /**
  * A testing-purposes adapter.
@@ -34,17 +22,11 @@ use Zend\Http\Client\Adapter as HTTPAdapter,
  * object manually, and then set it as the client's adapter. Then, you can
  * set the expected response using the setResponse() method.
  *
- * @uses       \Zend\Http\Client\Adapter\Exception
- * @uses       \Zend\Http\Client\Adapter
- * @uses       \Zend\Http\Response
- * @uses       \Zend\Uri\Url
  * @category   Zend
  * @package    Zend_Http
  * @subpackage Client_Adapter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-class Test implements HTTPAdapter
+class Test implements AdapterInterface
 {
     /**
      * Parameters array
@@ -69,15 +51,14 @@ class Test implements HTTPAdapter
     protected $responseIndex = 0;
 
     /**
-     * Wether or not the next request will fail with an exception
+     * Whether or not the next request will fail with an exception
      *
      * @var boolean
      */
-    protected $_nextRequestWillFail = false;
+    protected $nextRequestWillFail = false;
 
     /**
-     * Adapter constructor, currently empty. Config is set using setConfig()
-     *
+     * Adapter constructor, currently empty. Config is set using setOptions()
      */
     public function __construct()
     { }
@@ -90,7 +71,7 @@ class Test implements HTTPAdapter
      */
     public function setNextRequestWillFail($flag)
     {
-        $this->_nextRequestWillFail = (bool) $flag;
+        $this->nextRequestWillFail = (bool) $flag;
 
         return $this;
     }
@@ -98,20 +79,21 @@ class Test implements HTTPAdapter
     /**
      * Set the configuration array for the adapter
      *
-     * @param \Zend\Config\Config | array $config
+     * @param  array|Traversable $options
      */
-    public function setConfig($config = array())
+    public function setOptions($options = array())
     {
-        if ($config instanceof \Zend\Config\Config) {
-            $config = $config->toArray();
+        if ($options instanceof Traversable) {
+            $options = ArrayUtils::iteratorToArray($options);
+        }
 
-        } elseif (! is_array($config)) {
-            throw new Exception(
-                'Array or Zend_Config object expected, got ' . gettype($config)
+        if (! is_array($options)) {
+            throw new Exception\InvalidArgumentException(
+                'Array or Traversable object expected, got ' . gettype($options)
             );
         }
 
-        foreach ($config as $k => $v) {
+        foreach ($options as $k => $v) {
             $this->config[strtolower($k)] = $v;
         }
     }
@@ -124,13 +106,13 @@ class Test implements HTTPAdapter
      * @param int     $port
      * @param boolean $secure
      * @param int     $timeout
-     * @throws \Zend\Http\Client\Adapter\Exception
+     * @throws Exception\RuntimeException
      */
     public function connect($host, $port = 80, $secure = false)
     {
-        if ($this->_nextRequestWillFail) {
-            $this->_nextRequestWillFail = false;
-            throw new Exception('Request failed');
+        if ($this->nextRequestWillFail) {
+            $this->nextRequestWillFail = false;
+            throw new Exception\RuntimeException('Request failed');
         }
     }
 
@@ -138,7 +120,7 @@ class Test implements HTTPAdapter
      * Send request to the remote server
      *
      * @param string        $method
-     * @param \Zend\Uri\Url $uri
+     * @param \Zend\Uri\Uri $uri
      * @param string        $http_ver
      * @param array         $headers
      * @param string        $body
@@ -197,10 +179,10 @@ class Test implements HTTPAdapter
     public function setResponse($response)
     {
         if ($response instanceof Response) {
-            $response = $response->asString("\r\n");
+            $response = $response->toString();
         }
 
-        $this->responses = (array)$response;
+        $this->responses = (array) $response;
         $this->responseIndex = 0;
     }
 
@@ -212,8 +194,8 @@ class Test implements HTTPAdapter
     public function addResponse($response)
     {
          if ($response instanceof Response) {
-            $response = $response->asString("\r\n");
-        }
+            $response = $response->toString();
+         }
 
         $this->responses[] = $response;
     }
@@ -227,7 +209,7 @@ class Test implements HTTPAdapter
     public function setResponseIndex($index)
     {
         if ($index < 0 || $index >= count($this->responses)) {
-            throw new Exception(
+            throw new Exception\OutOfRangeException(
                 'Index out of range of response buffer size');
         }
         $this->responseIndex = $index;

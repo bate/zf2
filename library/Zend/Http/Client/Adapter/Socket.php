@@ -1,49 +1,30 @@
 <?php
-
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Http
- * @subpackage Client_Adapter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Http
  */
 
-/**
- * @namespace
- */
 namespace Zend\Http\Client\Adapter;
-use Zend\Http\Client\Adapter as HTTPAdapter,
-    Zend\Http\Response;
+
+use Traversable;
+use Zend\Http\Client\Adapter\AdapterInterface as HttpAdapter;
+use Zend\Http\Client\Adapter\Exception as AdapterException;
+use Zend\Http\Response;
+use Zend\Stdlib\ArrayUtils;
 
 /**
  * A sockets based (stream\socket\client) adapter class for Zend\Http\Client. Can be used
  * on almost every PHP environment, and does not require any special extensions.
  *
- * @uses       Zend\Http\Client
- * @uses       Zend\Http\Client\Adapter\Exception
- * @uses       Zend\Http\Client\Adapter
- * @uses       Zend\Http\Client\Adapter\Stream
- * @uses       Zend\Http\Response
- * @uses       Zend\Uri\Url
  * @category   Zend
  * @package    Zend_Http
  * @subpackage Client_Adapter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-class Socket implements HTTPAdapter, Stream
+class Socket implements HttpAdapter, StreamInterface
 {
     /**
      * The socket for server connection
@@ -61,22 +42,25 @@ class Socket implements HTTPAdapter, Stream
 
     /**
      * Stream for storing output
-     * 
+     *
      * @var resource
      */
     protected $out_stream = null;
-    
+
     /**
      * Parameters array
      *
      * @var array
      */
     protected $config = array(
-        'persistent'    => false,
-        'ssltransport'  => 'ssl',
-        'sslcert'       => null,
-        'sslpassphrase' => null,
-        'sslusecontext' => false
+        'persistent'            => false,
+        'ssltransport'          => 'ssl',
+        'sslcert'               => null,
+        'sslpassphrase'         => null,
+        'sslverifypeer'         => true,
+        'sslcapath'             => null,
+        'sslallowselfsigned'    => false,
+        'sslusecontext'         => false
     );
 
     /**
@@ -91,10 +75,10 @@ class Socket implements HTTPAdapter, Stream
      *
      * @var resource
      */
-    protected $_context = null;
+    protected $context = null;
 
     /**
-     * Adapter constructor, currently empty. Config is set using setConfig()
+     * Adapter constructor, currently empty. Config is set using setOptions()
      *
      */
     public function __construct()
@@ -104,35 +88,35 @@ class Socket implements HTTPAdapter, Stream
     /**
      * Set the configuration array for the adapter
      *
-     * @param \Zend\Config\Config | array $config
+     * @param  array|Traversable $options
      */
-    public function setConfig($config = array())
+    public function setOptions($options = array())
     {
-        if ($config instanceof \Zend\Config\Config) {
-            $config = $config->toArray();
-
-        } elseif (! is_array($config)) {
-            throw new Exception(
-                'Array or Zend_Config object expected, got ' . gettype($config)
+        if ($options instanceof Traversable) {
+            $options = ArrayUtils::iteratorToArray($options);
+        }
+        if (!is_array($options)) {
+            throw new AdapterException\InvalidArgumentException(
+                'Array or Zend_Config object expected, got ' . gettype($options)
             );
         }
 
-        foreach ($config as $k => $v) {
+        foreach ($options as $k => $v) {
             $this->config[strtolower($k)] = $v;
         }
     }
 
-	/**
- 	 * Retrieve the array of all configuration options
- 	 *
- 	 * @return array
- 	 */
- 	public function getConfig()
- 	{
- 	    return $this->config;
- 	}
+    /**
+     * Retrieve the array of all configuration options
+     *
+     * @return array
+     */
+    public function getConfig()
+    {
+        return $this->config;
+    }
 
- 	/**
+    /**
      * Set the stream context for the TCP connection to the server
      *
      * Can accept either a pre-existing stream context resource, or an array
@@ -143,19 +127,19 @@ class Socket implements HTTPAdapter, Stream
      * @since  Zend Framework 1.9
      *
      * @param  mixed $context Stream context or array of context options
-     * @return \Zend\Http\Client\Adapter\Socket
+     * @return Socket
      */
     public function setStreamContext($context)
     {
         if (is_resource($context) && get_resource_type($context) == 'stream-context') {
-            $this->_context = $context;
+            $this->context = $context;
 
         } elseif (is_array($context)) {
-            $this->_context = stream_context_create($context);
+            $this->context = stream_context_create($context);
 
         } else {
             // Invalid parameter
-            throw new Exception(
+            throw new AdapterException\InvalidArgumentException(
                 "Expecting either a stream context resource or array, got " . gettype($context)
             );
         }
@@ -172,11 +156,11 @@ class Socket implements HTTPAdapter, Stream
      */
     public function getStreamContext()
     {
-        if (! $this->_context) {
-            $this->_context = stream_context_create();
+        if (! $this->context) {
+            $this->context = stream_context_create();
         }
 
-        return $this->_context;
+        return $this->context;
     }
 
     /**
@@ -185,6 +169,7 @@ class Socket implements HTTPAdapter, Stream
      * @param string  $host
      * @param int     $port
      * @param boolean $secure
+     * @throws AdapterException\RuntimeException
      */
     public function connect($host, $port = 80, $secure = false)
     {
@@ -200,16 +185,32 @@ class Socket implements HTTPAdapter, Stream
         if (! is_resource($this->socket) || ! $this->config['keepalive']) {
             $context = $this->getStreamContext();
             if ($secure || $this->config['sslusecontext']) {
+                if ($this->config['sslverifypeer'] !== null) {
+                    if (! stream_context_set_option($context, 'ssl', 'verify_peer',
+                                                    $this->config['sslverifypeer'])) {
+                        throw new AdapterException\RuntimeException('Unable to set sslverifypeer option');
+                    }
+                    if (! stream_context_set_option($context, 'ssl', 'capath',
+                                                    $this->config['sslcapath'])) {
+                        throw new AdapterException\RuntimeException('Unable to set sslcapath option');
+                    }
+                    if ($this->config['sslallowselfsigned'] !== null) {
+                        if (! stream_context_set_option($context, 'ssl', 'allow_self_signed',
+                                                        $this->config['sslallowselfsigned'])) {
+                            throw new AdapterException\RuntimeException('Unable to set sslallowselfsigned option');
+                        }
+                    }
+                }
                 if ($this->config['sslcert'] !== null) {
                     if (! stream_context_set_option($context, 'ssl', 'local_cert',
                                                     $this->config['sslcert'])) {
-                        throw new Exception('Unable to set sslcert option');
+                        throw new AdapterException\RuntimeException('Unable to set sslcert option');
                     }
                 }
                 if ($this->config['sslpassphrase'] !== null) {
                     if (! stream_context_set_option($context, 'ssl', 'passphrase',
                                                     $this->config['sslpassphrase'])) {
-                        throw new Exception('Unable to set sslpassphrase option');
+                        throw new AdapterException\RuntimeException('Unable to set sslpassphrase option');
                     }
                 }
             }
@@ -217,6 +218,8 @@ class Socket implements HTTPAdapter, Stream
             $flags = STREAM_CLIENT_CONNECT;
             if ($this->config['persistent']) $flags |= STREAM_CLIENT_PERSISTENT;
 
+            $errno = null;
+            $errstr = '';
             $this->socket = @stream_socket_client($host . ':' . $port,
                                                   $errno,
                                                   $errstr,
@@ -226,13 +229,13 @@ class Socket implements HTTPAdapter, Stream
 
             if (! $this->socket) {
                 $this->close();
-                throw new Exception(
+                throw new AdapterException\RuntimeException(
                     'Unable to Connect to ' . $host . ':' . $port . '. Error #' . $errno . ': ' . $errstr);
             }
 
             // Set the stream timeout
             if (! stream_set_timeout($this->socket, (int) $this->config['timeout'])) {
-                throw new Exception('Unable to set the connection timeout');
+                throw new AdapterException\RuntimeException('Unable to set the connection timeout');
             }
 
             // Update connected_to
@@ -240,11 +243,12 @@ class Socket implements HTTPAdapter, Stream
         }
     }
 
+
     /**
      * Send request to the remote server
      *
      * @param string        $method
-     * @param \Zend\Uri\Url $uri
+     * @param \Zend\Uri\Uri $uri
      * @param string        $http_ver
      * @param array         $headers
      * @param string        $body
@@ -254,13 +258,13 @@ class Socket implements HTTPAdapter, Stream
     {
         // Make sure we're properly connected
         if (! $this->socket) {
-            throw new Exception('Trying to write but we are not connected');
+            throw new AdapterException\RuntimeException('Trying to write but we are not connected');
         }
 
         $host = $uri->getHost();
         $host = (strtolower($uri->getScheme()) == 'https' ? $this->config['ssltransport'] : 'tcp') . '://' . $host;
         if ($this->connected_to[0] != $host || $this->connected_to[1] != $uri->getPort()) {
-            throw new Exception('Trying to write but we are connected to the wrong host');
+            throw new AdapterException\RuntimeException('Trying to write but we are connected to the wrong host');
         }
 
         // Save request method for later
@@ -275,21 +279,21 @@ class Socket implements HTTPAdapter, Stream
             $request .= "$v\r\n";
         }
 
-        if(is_resource($body)) {
+        if (is_resource($body)) {
             $request .= "\r\n";
         } else {
             // Add the request body
             $request .= "\r\n" . $body;
         }
-        
+
         // Send the request
         if (! @fwrite($this->socket, $request)) {
-            throw new Exception('Error writing request to server');
+            throw new AdapterException\RuntimeException('Error writing request to server');
         }
-        
-        if(is_resource($body)) {
-            if(stream_copy_to_stream($body, $this->socket) == 0) {
-                throw new Exception('Error writing request to server');
+
+        if (is_resource($body)) {
+            if (stream_copy_to_stream($body, $this->socket) == 0) {
+                throw new AdapterException\RuntimeException('Error writing request to server');
             }
         }
 
@@ -306,47 +310,51 @@ class Socket implements HTTPAdapter, Stream
         // First, read headers only
         $response = '';
         $gotStatus = false;
-        $stream = !empty($this->config['stream']);
 
-        while (($line = @fgets($this->socket)) !== false) {
+        while (($line = fgets($this->socket)) !== false) {
             $gotStatus = $gotStatus || (strpos($line, 'HTTP') !== false);
             if ($gotStatus) {
                 $response .= $line;
                 if (rtrim($line) === '') break;
             }
         }
-        
+
         $this->_checkSocketReadTimeout();
 
-        $statusCode = Response::extractCode($response);
+        $responseObj= Response::fromString($response);
+
+        $statusCode = $responseObj->getStatusCode();
 
         // Handle 100 and 101 responses internally by restarting the read again
         if ($statusCode == 100 || $statusCode == 101) return $this->read();
 
         // Check headers to see what kind of connection / transfer encoding we have
-        $headers = Response::extractHeaders($response);
+        $headers = $responseObj->getHeaders();
 
         /**
          * Responses to HEAD requests and 204 or 304 responses are not expected
          * to have a body - stop reading here
          */
         if ($statusCode == 304 || $statusCode == 204 ||
-            $this->method == \Zend\Http\Client::HEAD) {
+            $this->method == \Zend\Http\Request::METHOD_HEAD) {
 
             // Close the connection if requested to do so by the server
-            if (isset($headers['connection']) && $headers['connection'] == 'close') {
+            $connection = $headers->get('connection');
+            if ($connection && $connection->getFieldValue() == 'close') {
                 $this->close();
             }
             return $response;
         }
 
         // If we got a 'transfer-encoding: chunked' header
-        if (isset($headers['transfer-encoding'])) {
-            
-            if (strtolower($headers['transfer-encoding']) == 'chunked') {
+        $transfer_encoding = $headers->get('transfer-encoding');
+        $content_length = $headers->get('content-length');
+        if ($transfer_encoding !== false) {
+
+            if (strtolower($transfer_encoding->getFieldValue()) == 'chunked') {
 
                 do {
-                    $line  = @fgets($this->socket);
+                    $line  = fgets($this->socket);
                     $this->_checkSocketReadTimeout();
 
                     $chunk = $line;
@@ -355,7 +363,7 @@ class Socket implements HTTPAdapter, Stream
                     $chunksize = trim($line);
                     if (! ctype_xdigit($chunksize)) {
                         $this->close();
-                        throw new Exception('Invalid chunk size "' .
+                        throw new AdapterException\RuntimeException('Invalid chunk size "' .
                             $chunksize . '" unable to read chunked body');
                     }
 
@@ -369,13 +377,13 @@ class Socket implements HTTPAdapter, Stream
                         $current_pos = ftell($this->socket);
                         if ($current_pos >= $read_to) break;
 
-                        if($this->out_stream) {
-                            if(stream_copy_to_stream($this->socket, $this->out_stream, $read_to - $current_pos) == 0) {
+                        if ($this->out_stream) {
+                            if (stream_copy_to_stream($this->socket, $this->out_stream, $read_to - $current_pos) == 0) {
                               $this->_checkSocketReadTimeout();
-                              break;   
+                              break;
                              }
                         } else {
-                            $line = @fread($this->socket, $read_to - $current_pos);
+                            $line = fread($this->socket, $read_to - $current_pos);
                             if ($line === false || strlen($line) === 0) {
                                 $this->_checkSocketReadTimeout();
                                 break;
@@ -387,32 +395,31 @@ class Socket implements HTTPAdapter, Stream
                     $chunk .= @fgets($this->socket);
                     $this->_checkSocketReadTimeout();
 
-                    if(!$this->out_stream) {
+                    if (!$this->out_stream) {
                         $response .= $chunk;
                     }
                 } while ($chunksize > 0);
             } else {
                 $this->close();
-                throw new Exception('Cannot handle "' .
-                    $headers['transfer-encoding'] . '" transfer encoding');
+                throw new AdapterException\RuntimeException('Cannot handle "' .
+                    $transfer_encoding->getFieldValue() . '" transfer encoding');
             }
-            
+
             // We automatically decode chunked-messages when writing to a stream
             // this means we have to disallow the Zend_Http_Response to do it again
             if ($this->out_stream) {
                 $response = str_ireplace("Transfer-Encoding: chunked\r\n", '', $response);
             }
         // Else, if we got the content-length header, read this number of bytes
-        } elseif (isset($headers['content-length'])) {
+        } elseif ($content_length !== false) {
 
             // If we got more than one Content-Length header (see ZF-9404) use
             // the last value sent
-            if (is_array($headers['content-length'])) {
-                $contentLength = $headers['content-length'][count($headers['content-length']) - 1]; 
-            } else {
-                $contentLength = $headers['content-length'];
+            if (is_array($content_length)) {
+                $content_length = $content_length[count($content_length) - 1];
             }
-            
+            $contentLength = $content_length->getFieldValue();
+
             $current_pos = ftell($this->socket);
             $chunk = '';
 
@@ -420,13 +427,13 @@ class Socket implements HTTPAdapter, Stream
                  $read_to > $current_pos;
                  $current_pos = ftell($this->socket)) {
 
-                 if($this->out_stream) {
-                     if(@stream_copy_to_stream($this->socket, $this->out_stream, $read_to - $current_pos) == 0) {
+                 if ($this->out_stream) {
+                     if (stream_copy_to_stream($this->socket, $this->out_stream, $read_to - $current_pos) == 0) {
                           $this->_checkSocketReadTimeout();
-                          break;   
+                          break;
                      }
                  } else {
-                    $chunk = @fread($this->socket, $read_to - $current_pos);
+                    $chunk = fread($this->socket, $read_to - $current_pos);
                     if ($chunk === false || strlen($chunk) === 0) {
                         $this->_checkSocketReadTimeout();
                         break;
@@ -443,13 +450,13 @@ class Socket implements HTTPAdapter, Stream
         } else {
 
             do {
-                if($this->out_stream) {
-                    if(@stream_copy_to_stream($this->socket, $this->out_stream) == 0) {
+                if ($this->out_stream) {
+                    if (stream_copy_to_stream($this->socket, $this->out_stream) == 0) {
                           $this->_checkSocketReadTimeout();
-                          break;   
+                          break;
                      }
-                }  else {
-                    $buff = @fread($this->socket, 8192);
+                } else {
+                    $buff = fread($this->socket, 8192);
                     if ($buff === false || strlen($buff) === 0) {
                         $this->_checkSocketReadTimeout();
                         break;
@@ -464,7 +471,8 @@ class Socket implements HTTPAdapter, Stream
         }
 
         // Close the connection if requested to do so by the server
-        if (isset($headers['connection']) && $headers['connection'] == 'close') {
+        $connection = $headers->get('connection');
+        if ($connection && $connection->getFieldValue() == 'close') {
             $this->close();
         }
 
@@ -486,7 +494,7 @@ class Socket implements HTTPAdapter, Stream
      * Check if the socket has timed out - if so close connection and throw
      * an exception
      *
-     * @throws \Zend\Http\Client\Adapter\Exception with READ_TIMEOUT code
+     * @throws AdapterException\TimeoutException with READ_TIMEOUT code
      */
     protected function _checkSocketReadTimeout()
     {
@@ -495,26 +503,26 @@ class Socket implements HTTPAdapter, Stream
             $timedout = $info['timed_out'];
             if ($timedout) {
                 $this->close();
-                throw new Exception(
+                throw new AdapterException\TimeoutException(
                     "Read timed out after {$this->config['timeout']} seconds",
-                    Exception::READ_TIMEOUT
+                    AdapterException\TimeoutException::READ_TIMEOUT
                 );
             }
         }
     }
-    
+
     /**
      * Set output stream for the response
-     * 
+     *
      * @param resource $stream
      * @return \Zend\Http\Client\Adapter\Socket
      */
-    public function setOutputStream($stream) 
+    public function setOutputStream($stream)
     {
         $this->out_stream = $stream;
         return $this;
     }
-    
+
     /**
      * Destructor: make sure the socket is disconnected
      *

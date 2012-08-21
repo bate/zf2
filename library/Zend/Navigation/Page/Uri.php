@@ -1,42 +1,23 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Navigation
- * @subpackage Page
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Navigation
  */
 
-/**
- * @namespace
- */
 namespace Zend\Navigation\Page;
 
-use Zend\Navigation\AbstractPage,
-    Zend\Navigation\Exception as NavigationException;
+use Zend\Navigation\Exception;
 
 /**
  * Represents a page that is defined by specifying a URI
  *
- * @uses       \Zend\Navigation\Exception
- * @uses       \Zend\Navigation\Page\Page
  * @category   Zend
  * @package    Zend_Navigation
  * @subpackage Page
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
 class Uri extends AbstractPage
 {
@@ -45,23 +26,25 @@ class Uri extends AbstractPage
      *
      * @var string|null
      */
-    protected $_uri = null;
+    protected $uri = null;
 
     /**
      * Sets page URI
      *
      * @param  string $uri                page URI, must a string or null
-     * @return \Zend\Navigation\Page\Uri   fluent interface, returns self
-     * @throws \Zend\Navigation\Exception  if $uri is invalid
+     *
+     * @return Uri   fluent interface, returns self
+     * @throws Exception\InvalidArgumentException  if $uri is invalid
      */
     public function setUri($uri)
     {
         if (null !== $uri && !is_string($uri)) {
-            throw new NavigationException(
-                    'Invalid argument: $uri must be a string or null');
+            throw new Exception\InvalidArgumentException(
+                'Invalid argument: $uri must be a string or null'
+            );
         }
 
-        $this->_uri = $uri;
+        $this->uri = $uri;
         return $this;
     }
 
@@ -72,20 +55,31 @@ class Uri extends AbstractPage
      */
     public function getUri()
     {
-        return $this->_uri;
+        return $this->uri;
     }
 
     /**
      * Returns href for this page
      *
+     * Includes the fragment identifier if it is set.
+     *
      * @return string
      */
     public function getHref()
     {
-        return $this->getUri();
-    }
+        $uri = $this->getUri();
 
-    // Public methods:
+        $fragment = $this->getFragment();
+        if (null !== $fragment) {
+            if ('#' == substr($uri, -1)) {
+                return $uri . $fragment;
+            } else {
+                return $uri . '#' . $fragment;
+            }
+        }
+
+        return $uri;
+    }
 
     /**
      * Returns an array representation of the page
@@ -97,7 +91,8 @@ class Uri extends AbstractPage
         return array_merge(
             parent::toArray(),
             array(
-                'uri' => $this->getUri()
-            ));
+                'uri' => $this->getUri(),
+            )
+        );
     }
 }

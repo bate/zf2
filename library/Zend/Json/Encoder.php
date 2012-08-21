@@ -1,37 +1,25 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Json
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Json
  */
 
-/**
- * @namespace
- */
 namespace Zend\Json;
+
+use Iterator;
+use IteratorAggregate;
+use Zend\Json\Exception\InvalidArgumentException;
+use Zend\Json\Exception\RecursionException;
 
 /**
  * Encode PHP constructs to JSON
  *
- * @uses       ReflectionClass
- * @uses       \Zend\Json\Exception
  * @category   Zend
  * @package    Zend_Json
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
 class Encoder
 {
@@ -40,21 +28,21 @@ class Encoder
      *
      * @var boolean
      */
-    protected $_cycleCheck;
+    protected $cycleCheck;
 
     /**
      * Additional options used during encoding
      *
      * @var array
      */
-    protected $_options = array();
+    protected $options = array();
 
     /**
      * Array of visited objects; used to prevent cycling.
      *
      * @var array
      */
-    protected $_visited = array();
+    protected $visited = array();
 
     /**
      * Constructor
@@ -65,8 +53,8 @@ class Encoder
      */
     protected function __construct($cycleCheck = false, $options = array())
     {
-        $this->_cycleCheck = $cycleCheck;
-        $this->_options = $options;
+        $this->cycleCheck = $cycleCheck;
+        $this->options = $options;
     }
 
     /**
@@ -98,7 +86,7 @@ class Encoder
     {
         if (is_object($value)) {
             return $this->_encodeObject($value);
-        } else if (is_array($value)) {
+        } elseif (is_array($value)) {
             return $this->_encodeArray($value);
         }
 
@@ -116,48 +104,56 @@ class Encoder
      *
      * @param $value object
      * @return string
-     * @throws \Zend\Json\Exception If recursive checks are enabled and the object has been serialized previously
+     * @throws Zend\Json\Exception\RecursionException If recursive checks are enabled
+     *                                                and the object has been serialized previously
      */
     protected function _encodeObject(&$value)
     {
-        if ($this->_cycleCheck) {
+        if ($this->cycleCheck) {
             if ($this->_wasVisited($value)) {
 
-                if (isset($this->_options['silenceCyclicalExceptions'])
-                    && $this->_options['silenceCyclicalExceptions']===true) {
+                if (isset($this->options['silenceCyclicalExceptions'])
+                    && $this->options['silenceCyclicalExceptions']===true) {
 
                     return '"* RECURSION (' . str_replace('\\', '\\\\', get_class($value)) . ') *"';
 
                 } else {
-                    throw new Exception(
+                    throw new RecursionException(
                         'Cycles not supported in JSON encoding, cycle introduced by '
                         . 'class "' . get_class($value) . '"'
                     );
                 }
             }
 
-            $this->_visited[] = $value;
+            $this->visited[] = $value;
         }
 
         $props = '';
 
-        if ($value instanceof \Iterator) {
-            $propCollection = $value;
+        if (method_exists($value, 'toJson')) {
+            $props =',' . preg_replace("/^\{(.*)\}$/","\\1",$value->toJson());
         } else {
-            $propCollection = get_object_vars($value);
-        }
+            if ($value instanceof IteratorAggregate) {
+                $propCollection = $value->getIterator();
+            } elseif ($value instanceof Iterator) {
+                $propCollection = $value;
+            } else {
+                $propCollection = get_object_vars($value);
+            }
 
-        foreach ($propCollection as $name => $propValue) {
-            if (isset($propValue)) {
-                $props .= ','
-                        . $this->_encodeValue($name)
-                        . ':'
-                        . $this->_encodeValue($propValue);
+            foreach ($propCollection as $name => $propValue) {
+                if (isset($propValue)) {
+                    $props .= ','
+                            . $this->_encodeValue($name)
+                            . ':'
+                            . $this->_encodeValue($propValue);
+                }
             }
         }
 
-        return '{"__className":"' 
-            . str_replace('\\', '\\\\', get_class($value)) . '"'
+        $className = get_class($value);
+        return '{"__className":'
+            . $this->_encodeString($className)
             . $props . '}';
     }
 
@@ -170,7 +166,7 @@ class Encoder
      */
     protected function _wasVisited(&$value)
     {
-        if (in_array($value, $this->_visited, true)) {
+        if (in_array($value, $this->visited, true)) {
             return true;
         }
 
@@ -228,7 +224,7 @@ class Encoder
      * If value type is not a string, number, boolean, or null, the string
      * 'null' is returned.
      *
-     * @param $value mixed
+     * @param  mixed $value
      * @return string
      */
     protected function _encodeDatum(&$value)
@@ -237,7 +233,7 @@ class Encoder
 
         if (is_int($value) || is_float($value)) {
             $result = (string) $value;
-            $result = str_replace(",", ".", $result);
+            $result = str_replace(',', '.', $result);
         } elseif (is_string($value)) {
             $result = $this->_encodeString($value);
         } elseif (is_bool($value)) {
@@ -256,10 +252,10 @@ class Encoder
      */
     protected function _encodeString(&$string)
     {
-        // Escape these characters with a backslash:
+        // Escape these characters with a backslash or unicode escape:
         // " \ / \n \r \t \b \f
-        $search  = array('\\', "\n", "\t", "\r", "\b", "\f", '"', '/');
-        $replace = array('\\\\', '\\n', '\\t', '\\r', '\\b', '\\f', '\"', '\\/');
+        $search  = array('\\', "\n", "\t", "\r", "\b", "\f", '"', '\'', '&', '<', '>', '/');
+        $replace = array('\\\\', '\\n', '\\t', '\\r', '\\b', '\\f', '\\u0022', '\\u0027', '\\u0026',  '\\u003C', '\\u003E', '\\/');
         $string  = str_replace($search, $replace, $string);
 
         // Escape certain ASCII characters:
@@ -402,13 +398,13 @@ class Encoder
      * @param $package string Optional package name appended to JavaScript
      * proxy class name
      * @return string The class2 (JavaScript) encoding of the class
-     * @throws \Zend\Json\Exception
+     * @throws Zend\Json\Exception\InvalidArgumentException
      */
     public static function encodeClass($className, $package = '')
     {
         $cls = new \ReflectionClass($className);
         if (! $cls->isInstantiable()) {
-            throw new Exception("$className must be instantiable");
+            throw new InvalidArgumentException("'{$className}' must be instantiable");
         }
 
         return "Class.create('$package$className',{"
@@ -457,7 +453,7 @@ class Encoder
          * Iterate over every character in the string,
          * escaping with a slash or encoding to UTF-8 where necessary
          */
-        for($i = 0; $i < $strlen_var; $i++) {
+        for ($i = 0; $i < $strlen_var; $i++) {
             $ord_var_c = ord($value[$i]);
 
             switch (true) {
@@ -535,7 +531,7 @@ class Encoder
      *
      * Normally should be handled by mb_convert_encoding, but
      * provides a slower PHP-only method for installations
-     * that lack the multibye string extension.
+     * that lack the multibyte string extension.
      *
      * This method is from the Solar Framework by Paul M. Jones
      *
@@ -546,7 +542,7 @@ class Encoder
     protected static function _utf82utf16($utf8)
     {
         // Check for mb extension otherwise do by hand.
-        if( function_exists('mb_convert_encoding') ) {
+        if (function_exists('mb_convert_encoding')) {
             return mb_convert_encoding($utf8, 'UTF-16', 'UTF-8');
         }
 
@@ -576,4 +572,3 @@ class Encoder
         return '';
     }
 }
-
