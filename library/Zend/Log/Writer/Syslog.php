@@ -1,128 +1,107 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Log
- * @subpackage Writer
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Log
  */
 
-/**
- * @namespace
- */
 namespace Zend\Log\Writer;
-use Zend\Log;
+
+use Zend\Log\Exception;
+use Zend\Log\Formatter;
+use Zend\Log\Logger;
 
 /**
  * Writes log messages to syslog
  *
- * @uses       \Zend\Log\Log
- * @uses       \Zend\Log\Writer\AbstractWriter
  * @category   Zend
  * @package    Zend_Log
  * @subpackage Writer
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
 class Syslog extends AbstractWriter
 {
     /**
      * Maps Zend_Log priorities to PHP's syslog priorities
+     *
      * @var array
      */
-    protected $_priorities = array(
-        Log\Logger::EMERG  => LOG_EMERG,
-        Log\Logger::ALERT  => LOG_ALERT,
-        Log\Logger::CRIT   => LOG_CRIT,
-        Log\Logger::ERR    => LOG_ERR,
-        Log\Logger::WARN   => LOG_WARNING,
-        Log\Logger::NOTICE => LOG_NOTICE,
-        Log\Logger::INFO   => LOG_INFO,
-        Log\Logger::DEBUG  => LOG_DEBUG,
+    protected $priorities = array(
+        Logger::EMERG  => LOG_EMERG,
+        Logger::ALERT  => LOG_ALERT,
+        Logger::CRIT   => LOG_CRIT,
+        Logger::ERR    => LOG_ERR,
+        Logger::WARN   => LOG_WARNING,
+        Logger::NOTICE => LOG_NOTICE,
+        Logger::INFO   => LOG_INFO,
+        Logger::DEBUG  => LOG_DEBUG,
     );
 
     /**
      * The default log priority - for unmapped custom priorities
+     *
      * @var string
      */
-    protected $_defaultPriority = LOG_NOTICE;
+    protected $defaultPriority = LOG_NOTICE;
 
     /**
      * Last application name set by a syslog-writer instance
+     *
      * @var string
      */
-    protected static $_lastApplication;
+    protected static $lastApplication;
 
     /**
      * Last facility name set by a syslog-writer instance
+     *
      * @var string
      */
-    protected static $_lastFacility;
+    protected static $lastFacility;
 
     /**
      * Application name used by this syslog-writer instance
+     *
      * @var string
      */
-    protected $_application = 'Zend_Log';
+    protected $appName = 'Zend\Log';
 
     /**
      * Facility used by this syslog-writer instance
+     *
      * @var int
      */
-    protected $_facility = LOG_USER;
+    protected $facility = LOG_USER;
 
     /**
-     * _validFacilities
+     * Types of program available to logging of message
      *
      * @var array
      */
-    protected $_validFacilities = array();
+    protected $validFacilities = array();
 
     /**
-     * Class constructor
+     * Constructor
      *
-     * @param  array $options Array of options; may include "application" and "facility" keys
-     * @return void
+     * @param  array $params Array of options; may include "application" and "facility" keys
+     * @return Syslog
      */
     public function __construct(array $params = array())
     {
         if (isset($params['application'])) {
-            $this->_application = $params['application'];
+            $this->application = $params['application'];
         }
 
         $runInitializeSyslog = true;
         if (isset($params['facility'])) {
-            $this->_facility = $this->setFacility($params['facility']);
+            $this->setFacility($params['facility']);
             $runInitializeSyslog = false;
         }
 
         if ($runInitializeSyslog) {
-            $this->_initializeSyslog();
+            $this->initializeSyslog();
         }
-    }
-
-    /**
-     * Create a new instance of Zend_Log_Writer_Syslog
-     *
-     * @param  array|\Zend\Config\Config $config
-     * @return \Zend\Log\Writer\Syslog
-     * @throws \Zend\Log\Exception
-     */
-    static public function factory($config = array())
-    {
-        return new self(self::_parseConfig($config));
     }
 
     /**
@@ -130,7 +109,7 @@ class Syslog extends AbstractWriter
      *
      * @return void
      */
-    protected function _initializeValidFacilities()
+    protected function initializeValidFacilities()
     {
         $constants = array(
             'LOG_AUTH',
@@ -156,7 +135,7 @@ class Syslog extends AbstractWriter
 
         foreach ($constants as $constant) {
             if (defined($constant)) {
-                $this->_validFacilities[] = constant($constant);
+                $this->validFacilities[] = constant($constant);
             }
         }
     }
@@ -166,58 +145,63 @@ class Syslog extends AbstractWriter
      *
      * @return void
      */
-    protected function _initializeSyslog()
+    protected function initializeSyslog()
     {
-        self::$_lastApplication = $this->_application;
-        self::$_lastFacility    = $this->_facility;
-        openlog($this->_application, LOG_PID, $this->_facility);
+        self::$lastApplication = $this->appName;
+        self::$lastFacility    = $this->facility;
+        openlog($this->appName, LOG_PID, $this->facility);
     }
 
     /**
      * Set syslog facility
      *
-     * @param  int $facility Syslog facility
-     * @return void
-     * @throws Zend_Log_Exception for invalid log facility
+     * @param int $facility Syslog facility
+     * @return Syslog
+     * @throws Exception\InvalidArgumentException for invalid log facility
      */
     public function setFacility($facility)
     {
-        if ($this->_facility === $facility) {
+        if ($this->facility === $facility) {
             return $this;
         }
 
-        if (!count($this->_validFacilities)) {
-            $this->_initializeValidFacilities();
+        if (!count($this->validFacilities)) {
+            $this->initializeValidFacilities();
         }
 
-        if (!in_array($facility, $this->_validFacilities)) {
-            throw new Log\Exception('Invalid log facility provided; please see http://php.net/openlog for a list of valid facility values');
+        if (!in_array($facility, $this->validFacilities)) {
+            throw new Exception\InvalidArgumentException(
+                'Invalid log facility provided; please see http://php.net/openlog for a list of valid facility values'
+            );
         }
 
         if ('WIN' == strtoupper(substr(PHP_OS, 0, 3))
             && ($facility !== LOG_USER)
         ) {
-            throw new Log\Exception('Only LOG_USER is a valid log facility on Windows');
+            throw new Exception\InvalidArgumentException(
+                'Only LOG_USER is a valid log facility on Windows'
+            );
         }
 
-        $this->_facility = $facility;
-        $this->_initializeSyslog();
+        $this->facility = $facility;
+        $this->initializeSyslog();
         return $this;
     }
 
     /**
      * Set application name
      *
-     * @param  string $application Application name
-     * @return void
+     * @param string $appName Application name
+     * @return Syslog
      */
-    public function setApplicationName($application)
+    public function setApplicationName($appName)
     {
-        if ($this->_application === $application) {
+        if ($this->appName === $appName) {
             return $this;
         }
-        $this->_application = $application;
-        $this->_initializeSyslog();
+
+        $this->appName = $appName;
+        $this->initializeSyslog();
         return $this;
     }
 
@@ -234,23 +218,29 @@ class Syslog extends AbstractWriter
     /**
      * Write a message to syslog.
      *
-     * @param  array $event  event data
+     * @param array $event event data
      * @return void
      */
-    protected function _write($event)
+    protected function doWrite(array $event)
     {
-        if (array_key_exists($event['priority'], $this->_priorities)) {
-            $priority = $this->_priorities[$event['priority']];
+        if (array_key_exists($event['priority'], $this->priorities)) {
+            $priority = $this->priorities[$event['priority']];
         } else {
-            $priority = $this->_defaultPriority;
+            $priority = $this->defaultPriority;
         }
 
-        if ($this->_application !== self::$_lastApplication
-            || $this->_facility !== self::$_lastFacility)
-        {
-            $this->_initializeSyslog();
+        if ($this->appName !== self::$lastApplication
+            || $this->facility !== self::$lastFacility
+        ) {
+            $this->initializeSyslog();
         }
 
-        syslog($priority, $event['message']);
+        if ($this->formatter instanceof Formatter) {
+            $message = $this->formatter->format($event);
+        } else {
+            $message = $event['message'];
+        }
+
+        syslog($priority, $message);
     }
 }

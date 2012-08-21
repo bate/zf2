@@ -1,58 +1,51 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_View
- * @subpackage Helper
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_View
  */
 
-/**
- * @namespace
- */
 namespace Zend\View\Helper;
 
-use Zend\View\Helper;
+use Zend\View\Helper\HelperInterface;
+use Zend\View\Renderer\RendererInterface as Renderer;
 
 /**
- * @uses       \Zend\View\Helper
  * @category   Zend
  * @package    Zend_View
  * @subpackage Helper
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-abstract class AbstractHelper implements Helper
+abstract class AbstractHelper implements HelperInterface
 {
     /**
      * View object
      *
-     * @var \Zend\View\ViewEngine
+     * @var Renderer
      */
-    public $view = null;
+    protected $view = null;
 
     /**
      * Set the View object
      *
-     * @param  \Zend\View\ViewEngine $view
-     * @return \Zend\View\Helper\AbstractHelper
+     * @param  Renderer $view
+     * @return AbstractHelper
      */
-    public function setView(\Zend\View\ViewEngine $view)
+    public function setView(Renderer $view)
     {
         $this->view = $view;
         return $this;
     }
 
+    /**
+     * Get the view object
+     *
+     * @return null|Renderer
+     */
+    public function getView()
+    {
+        return $this->view;
+    }
 }

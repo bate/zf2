@@ -1,47 +1,30 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_View
- * @subpackage Helper
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_View
  */
 
-/**
- * @namespace
- */
 namespace Zend\View\Helper;
+
+use Zend\View\Exception;
 
 /**
  * Helper for rendering a template fragment in its own variable scope.
  *
- * @uses       \Zend\Controller\Front
- * @uses       \Zend\View\Helper\AbstractHelper
- * @uses       \Zend\View\Helper\Partial\Exception
  * @package    Zend_View
  * @subpackage Helper
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-class Partial extends \Zend\View\Helper\AbstractHelper
+class Partial extends AbstractHelper
 {
     /**
      * Variable to which object will be assigned
      * @var string
      */
-    protected $_objectKey;
+    protected $objectKey;
 
     /**
      * Renders a template fragment within a variable scope distinct from the
@@ -58,14 +41,11 @@ class Partial extends \Zend\View\Helper\AbstractHelper
      * get_object_vars() is passed.
      *
      * @param  string $name Name of view script
-     * @param  string|array $module If $model is empty, and $module is an array,
-     *                              these are the variables to populate in the
-     *                              view. Otherwise, the module in which the
-     *                              partial resides
      * @param  array $model Variables to populate in the view
-     * @return string|\Zend\View\Helper\Partial\Partial
+     * @return string|Partial
+     * @throws Exception\RuntimeException
      */
-    public function direct($name = null, $module = null, $model = null)
+    public function __invoke($name = null, $model = null)
     {
         if (0 == func_num_args()) {
             return $this;
@@ -75,31 +55,17 @@ class Partial extends \Zend\View\Helper\AbstractHelper
         if (isset($this->partialCounter)) {
             $view->partialCounter = $this->partialCounter;
         }
-        if ((null !== $module) && is_string($module)) {
-            $moduleDir = \Zend\Controller\Front::getInstance()->getControllerDirectory($module);
-            if (null === $moduleDir) {
-                $e = new Partial\Exception('Cannot render partial; module does not exist');
-                $e->setView($this->view);
-                throw $e;
-            }
-            $viewsDir = dirname($moduleDir) . '/views';
-            $view->addBasePath($viewsDir);
-        } elseif ((null == $model) && (null !== $module)
-            && (is_array($module) || is_object($module)))
-        {
-            $model = $module;
-        }
 
         if (!empty($model)) {
             if (is_array($model)) {
-                $view->assign($model);
+                $view->vars()->assign($model);
             } elseif (is_object($model)) {
                 if (null !== ($objectKey = $this->getObjectKey())) {
-                    $view->assign($objectKey, $model);
+                    $view->vars()->offsetSet($objectKey, $model);
                 } elseif (method_exists($model, 'toArray')) {
-                    $view->assign($model->toArray());
+                    $view->vars()->assign($model->toArray());
                 } else {
-                    $view->assign(get_object_vars($model));
+                    $view->vars()->assign(get_object_vars($model));
                 }
             }
         }
@@ -110,12 +76,12 @@ class Partial extends \Zend\View\Helper\AbstractHelper
     /**
      * Clone the current View
      *
-     * @return \Zend\View\ViewEngine
+     * @return \Zend\View\Renderer\RendererInterface
      */
     public function cloneView()
     {
         $view = clone $this->view;
-        $view->clearVars();
+        $view->setVars(array());
         return $view;
     }
 
@@ -123,14 +89,14 @@ class Partial extends \Zend\View\Helper\AbstractHelper
      * Set object key
      *
      * @param  string $key
-     * @return \Zend\View\Helper\Partial\Partial
+     * @return Partial
      */
     public function setObjectKey($key)
     {
         if (null === $key) {
-            $this->_objectKey = null;
+            $this->objectKey = null;
         } else {
-            $this->_objectKey = (string) $key;
+            $this->objectKey = (string) $key;
         }
 
         return $this;
@@ -146,6 +112,6 @@ class Partial extends \Zend\View\Helper\AbstractHelper
      */
     public function getObjectKey()
     {
-        return $this->_objectKey;
+        return $this->objectKey;
     }
 }

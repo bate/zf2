@@ -1,71 +1,52 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Filter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Filter
  */
 
-/**
- * @namespace
- */
 namespace Zend\Filter;
 
-use Zend\Loader;
-
 /**
- * @uses       \Zend\Filter\Exception
- * @uses       \Zend\Filter\Filter
- * @uses       \Zend\Loader
- * @uses       \Zend\Loader\Exception
  * @category   Zend
  * @package    Zend_Filter
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
 class StaticFilter
 {
     /**
-     * @var Loader\PrefixPathMapper
+     * @var FilterPluginManager
      */
-    protected static $_pluginLoader;
+    protected static $plugins;
 
     /**
-     * Set plugin loader for resolving filter classes
-     * 
-     * @param  Loader\ShortNameLocater $loader 
+     * Set plugin manager for resolving filter classes
+     *
+     * @param  FilterPluginManager $manager
      * @return void
      */
-    public static function setPluginLoader(Loader\ShortNameLocater $loader = null)
+    public static function setPluginManager(FilterPluginManager $manager = null)
     {
-        self::$_pluginLoader = $loader;
+        // Don't share by default to allow different arguments on subsequent calls
+        if ($manager instanceof FilterPluginManager) {
+            $manager->setShareByDefault(false);
+        }
+        self::$plugins = $manager;
     }
 
     /**
-     * Get plugin loader for resolving filter classes
-     * 
-     * @return Loader\ShortNameLocater
+     * Get plugin manager for loading filter classes
+     *
+     * @return FilterPluginManager
      */
-    public static function getPluginLoader()
+    public static function getPluginManager()
     {
-        if (null === self::$_pluginLoader) {
-            static::setPluginLoader(new Loader\PluginLoader(array(
-                'Zend\Filter' => 'Zend/Filter',
-            )));
+        if (null === self::$plugins) {
+            static::setPluginManager(new FilterPluginManager());
         }
-        return self::$_pluginLoader;
+        return self::$plugins;
     }
 
     /**
@@ -81,47 +62,14 @@ class StaticFilter
      * @param  mixed        $value
      * @param  string       $classBaseName
      * @param  array        $args          OPTIONAL
-     * @param  array|string $namespaces    OPTIONAL
      * @return mixed
-     * @throws \Zend\Filter\Exception
+     * @throws Exception\ExceptionInterface
      */
-    public static function execute($value, $classBaseName, array $args = array(), $namespaces = array())
+    public static function execute($value, $classBaseName, array $args = array())
     {
-        $loader = static::getPluginLoader();
-        if (!class_exists($classBaseName)) {
-            try {
-                $className  = $loader->load($classBaseName);
-            } catch (Loader\Exception $e) {
-                throw new Exception("Filter class not found from basename '$classBaseName'", null, $e);
-            }
-        } else {
-            $className = $classBaseName;
-        }
+        $plugins = static::getPluginManager();
 
-        $class = new \ReflectionClass($className);
-        if (!$class->implementsInterface('Zend\Filter\Filter')) {
-            throw new Exception("Filter class not found from basename '$classBaseName'");
-        }
-
-        if ((0 < count($args)) && $class->hasMethod('__construct')) {
-            $keys    = array_keys($args);
-            $numeric = false;
-            foreach($keys as $key) {
-                if (is_numeric($key)) {
-                    $numeric = true;
-                    break;
-                }
-            }
-
-            if ($numeric) {
-                $object = $class->newInstanceArgs($args);
-            } else {
-                $object = $class->newInstance($args);
-            }
-        } else {
-            $object = $class->newInstance();
-        }
-
-        return $object->filter($value);
+        $filter = $plugins->get($classBaseName, $args);
+        return $filter->filter($value);
     }
 }

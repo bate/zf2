@@ -1,41 +1,25 @@
 <?php
 /**
- * Zend Framework
+ * Zend Framework (http://framework.zend.com/)
  *
- * LICENSE
- *
- * This source file is subject to the new BSD license that is bundled
- * with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://framework.zend.com/license/new-bsd
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to license@zend.com so we can send you a copy immediately.
- *
- * @category   Zend
- * @package    Zend_Json
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+ * @link      http://github.com/zendframework/zf2 for the canonical source repository
+ * @copyright Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+ * @license   http://framework.zend.com/license/new-bsd New BSD License
+ * @package   Zend_Json
  */
 
-/**
- * @namespace
- */
 namespace Zend\Json;
+
+use Zend\Json\Exception\RecursionException;
+use Zend\Json\Exception\RuntimeException;
 
 /**
  * Class for encoding to and decoding from JSON.
  *
- * @uses       \Zend\Json\Decoder
- * @uses       \Zend\Json\Encoder
- * @uses       \Zend\Json\Exception
- * @uses       \Zend\Json\Expr
  * @category   Zend
  * @package    Zend_Json
- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
- * @license    http://framework.zend.com/license/new-bsd     New BSD License
  */
-class JSON
+class Json
 {
     /**
      * How objects should be encoded -- arrays or as StdClass. TYPE_ARRAY is 1
@@ -67,30 +51,25 @@ class JSON
      * @param int $objectDecodeType Optional; flag indicating how to decode
      * objects. See {@link Zend_Json_Decoder::decode()} for details.
      * @return mixed
+     * @throws Zend\Json\Exception\RuntimeException
      */
-    public static function decode($encodedValue, $objectDecodeType = self::TYPE_ARRAY)
+    public static function decode($encodedValue, $objectDecodeType = self::TYPE_OBJECT)
     {
         $encodedValue = (string) $encodedValue;
         if (function_exists('json_decode') && self::$useBuiltinEncoderDecoder !== true) {
             $decode = json_decode($encodedValue, $objectDecodeType);
 
-            // php < 5.3
-            if (!function_exists('json_last_error')) {
-                if ($decode === $encodedValue) {
-                    throw new Exception('Decoding failed');
-                }
-            // php >= 5.3
-            } elseif (($jsonLastErr = json_last_error()) != JSON_ERROR_NONE) {
-                switch ($jsonLastErr) {
-                    case JSON_ERROR_DEPTH:
-                        throw new Exception('Decoding failed: Maximum stack depth exceeded');
-                    case JSON_ERROR_CTRL_CHAR:
-                        throw new Exception('Decoding failed: Unexpected control character found');
-                    case JSON_ERROR_SYNTAX:
-                        throw new Exception('Decoding failed: Syntax error');
-                    default:
-                        throw new Exception('Decoding failed');
-                }
+            switch (json_last_error()) {
+                case JSON_ERROR_NONE:
+                    break;
+                case JSON_ERROR_DEPTH:
+                    throw new RuntimeException('Decoding failed: Maximum stack depth exceeded');
+                case JSON_ERROR_CTRL_CHAR:
+                    throw new RuntimeException('Decoding failed: Unexpected control character found');
+                case JSON_ERROR_SYNTAX:
+                    throw new RuntimeException('Decoding failed: Syntax error');
+                default:
+                    throw new RuntimeException('Decoding failed');
             }
 
             return $decode;
@@ -121,13 +100,17 @@ class JSON
      */
     public static function encode($valueToEncode, $cycleCheck = false, $options = array())
     {
-        if (is_object($valueToEncode) && method_exists($valueToEncode, 'toJson')) {
-            return $valueToEncode->toJson();
+        if (is_object($valueToEncode)) {
+            if (method_exists($valueToEncode, 'toJson')) {
+                return $valueToEncode->toJson();
+            } elseif (method_exists($valueToEncode, 'toArray')) {
+                return self::encode($valueToEncode->toArray(), $cycleCheck, $options);
+            }
         }
 
         // Pre-encoding look for Zend_Json_Expr objects and replacing by tmp ids
         $javascriptExpressions = array();
-        if(isset($options['enableJsonExprFinder'])
+        if (isset($options['enableJsonExprFinder'])
            && ($options['enableJsonExprFinder'] == true)
         ) {
             $valueToEncode = self::_recursiveJsonExprFinder($valueToEncode, $javascriptExpressions);
@@ -135,15 +118,18 @@ class JSON
 
         // Encoding
         if (function_exists('json_encode') && self::$useBuiltinEncoderDecoder !== true) {
-            $encodedResult = json_encode($valueToEncode);
+            $encodedResult = json_encode(
+                $valueToEncode,
+                JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+            );
         } else {
             $encodedResult = Encoder::encode($valueToEncode, $cycleCheck, $options);
         }
 
-        //only do post-proccessing to revert back the Zend_Json_Expr if any.
+        //only do post-processing to revert back the Zend_Json_Expr if any.
         if (count($javascriptExpressions) > 0) {
             $count = count($javascriptExpressions);
-            for($i = 0; $i < $count; $i++) {
+            for ($i = 0; $i < $count; $i++) {
                 $magicKey = $javascriptExpressions[$i]['magicKey'];
                 $value    = $javascriptExpressions[$i]['value'];
 
@@ -156,7 +142,7 @@ class JSON
             }
         }
 
-         return $encodedResult;
+        return $encodedResult;
     }
 
     /**
@@ -197,53 +183,28 @@ class JSON
         }
         return $value;
     }
-
     /**
-     * fromXml - Converts XML to JSON
+     * Return the value of an XML attribute text or the text between
+     * the XML tags
      *
-     * Converts a XML formatted string into a JSON formatted string.
-     * The value returned will be a string in JSON format.
+     * In order to allow Zend_Json_Expr from xml, we check if the node
+     * matches the pattern that try to detect if it is a new Zend_Json_Expr
+     * if it matches, we return a new Zend_Json_Expr instead of a text node
      *
-     * The caller of this function needs to provide only the first parameter,
-     * which is an XML formatted String. The second parameter is optional, which
-     * lets the user to select if the XML attributes in the input XML string
-     * should be included or ignored in xml2json conversion.
-     *
-     * This function converts the XML formatted string into a PHP array by
-     * calling a recursive (protected static) function in this class. Then, it
-     * converts that PHP array into JSON by calling the "encode" static funcion.
-     *
-     * Throws a Zend_Json_Exception if the input not a XML formatted string.
-     * NOTE: Encoding native javascript expressions via Zend_Json_Expr is not possible.
-     *
-     * @static
-     * @access public
-     * @param string $xmlStringContents XML String to be converted
-     * @param boolean $ignoreXmlAttributes Include or exclude XML attributes in
-     * the xml2json conversion process.
-     * @return mixed - JSON formatted string on success
-     * @throws \Zend\Json\Exception
+     * @param SimpleXMLElement $simpleXmlElementObject
+     * @return Zend_Json_Expr|string
      */
-    public static function fromXml ($xmlStringContents, $ignoreXmlAttributes=true) {
-        // Load the XML formatted string into a Simple XML Element object.
-        $simpleXmlElementObject = simplexml_load_string($xmlStringContents);
-
-        // If it is not a valid XML content, throw an exception.
-        if ($simpleXmlElementObject == null) {
-            throw new Exception('Function fromXml was called with an invalid XML formatted string.');
-        } // End of if ($simpleXmlElementObject == null)
-
-        $resultArray = null;
-
-        // Call the recursive function to convert the XML into a PHP array.
-        $resultArray = self::_processXml($simpleXmlElementObject, $ignoreXmlAttributes);
-
-        // Convert the PHP array to JSON using Zend_Json encode method.
-        // It is just that simple.
-        $jsonStringOutput = self::encode($resultArray);
-        return($jsonStringOutput);
-    } // End of function fromXml.
-
+    protected static function _getXmlValue($simpleXmlElementObject)
+    {
+        $pattern   = '/^[\s]*new Zend[_\\]Json[_\\]Expr[\s]*\([\s]*[\"\']{1}(.*)[\"\']{1}[\s]*\)[\s]*$/';
+        $matchings = array();
+        $match     = preg_match($pattern, $simpleXmlElementObject, $matchings);
+        if ($match) {
+            return new Expr($matchings[1]);
+        } else {
+            return (trim(strval($simpleXmlElementObject)));
+        }
+    }
     /**
      * _processXml - Contains the logic for xml2json
      *
@@ -258,103 +219,123 @@ class JSON
      * calling a recursive (protected static) function in this class. Once all
      * the XML elements are stored in the PHP array, it is returned to the caller.
      *
-     * Throws a Zend_Json_Exception if the XML tree is deeper than the allowed limit.
+     * Throws a Zend\Json\RecursionException if the XML tree is deeper than the allowed limit.
      *
-     * @static
-     * @access protected
-     * @param SimpleXMLElement $simpleXmlElementObject XML element to be converted
-     * @param boolean $ignoreXmlAttributes Include or exclude XML attributes in
-     * the xml2json conversion process.
-     * @param int $recursionDepth Current recursion depth of this function
-     * @return mixed - On success, a PHP associative array of traversed XML elements
-     * @throws \Zend\Json\Exception
+     * @param SimpleXMLElement $simpleXmlElementObject
+     * @param boolean $ignoreXmlAttributes
+     * @param integer $recursionDepth
+     * @return array
      */
-    protected static function _processXml ($simpleXmlElementObject, $ignoreXmlAttributes, $recursionDepth=0) {
+    protected static function _processXml($simpleXmlElementObject, $ignoreXmlAttributes, $recursionDepth = 0)
+    {
         // Keep an eye on how deeply we are involved in recursion.
         if ($recursionDepth > self::$maxRecursionDepthAllowed) {
             // XML tree is too deep. Exit now by throwing an exception.
-            throw new Exception(
-                "Function _processXml exceeded the allowed recursion depth of " .
-                self::$maxRecursionDepthAllowed);
-        } // End of if ($recursionDepth > self::$maxRecursionDepthAllowed)
+            throw new RecursionException(
+                "Function _processXml exceeded the allowed recursion depth of "
+                .  self::$maxRecursionDepthAllowed
+            );
+        }
 
-        if ($recursionDepth == 0) {
-            // Store the original SimpleXmlElementObject sent by the caller.
-            // We will need it at the very end when we return from here for good.
-            $callerProvidedSimpleXmlElementObject = $simpleXmlElementObject;
-        } // End of if ($recursionDepth == 0)
+        $children   = $simpleXmlElementObject->children();
+        $name       = $simpleXmlElementObject->getName();
+        $value      = self::_getXmlValue($simpleXmlElementObject);
+        $attributes = (array) $simpleXmlElementObject->attributes();
 
-        if ($simpleXmlElementObject instanceof \SimpleXMLElement) {
-            // Get a copy of the simpleXmlElementObject
-            $copyOfSimpleXmlElementObject = $simpleXmlElementObject;
-            // Get the object variables in the SimpleXmlElement object for us to iterate.
-            $simpleXmlElementObject = get_object_vars($simpleXmlElementObject);
-        } // End of if (get_class($simpleXmlElementObject) == "SimpleXMLElement")
-
-        // It needs to be an array of object variables.
-        if (is_array($simpleXmlElementObject)) {
-            // Initialize a result array.
-            $resultArray = array();
-            // Is the input array size 0? Then, we reached the rare CDATA text if any.
-            if (count($simpleXmlElementObject) <= 0) {
-                // Let us return the lonely CDATA. It could even be
-                // an empty element or just filled with whitespaces.
-                return (trim(strval($copyOfSimpleXmlElementObject)));
-            } // End of if (count($simpleXmlElementObject) <= 0)
-
-            // Let us walk through the child elements now.
-            foreach($simpleXmlElementObject as $key=>$value) {
-                // Check if we need to ignore the XML attributes.
-                // If yes, you can skip processing the XML attributes.
-                // Otherwise, add the XML attributes to the result array.
-                if(($ignoreXmlAttributes == true) && (is_string($key)) && ($key == "@attributes")) {
-                    continue;
-                } // End of if(($ignoreXmlAttributes == true) && ($key == "@attributes"))
-
-                // Let us recursively process the current XML element we just visited.
-                // Increase the recursion depth by one.
-                $recursionDepth++;
-                $resultArray[$key] = self::_processXml ($value, $ignoreXmlAttributes, $recursionDepth);
-
-                // Decrease the recursion depth by one.
-                $recursionDepth--;
-            } // End of foreach($simpleXmlElementObject as $key=>$value) {
-
-            if ($recursionDepth == 0) {
-                // That is it. We are heading to the exit now.
-                // Set the XML root element name as the root [top-level] key of
-                // the associative array that we are going to return to the original
-                // caller of this recursive function.
-                $tempArray = $resultArray;
-                $resultArray = array();
-                $resultArray[$callerProvidedSimpleXmlElementObject->getName()] = $tempArray;
-            } // End of if ($recursionDepth == 0)
-
-            return($resultArray);
-        } else {
-            // We are now looking at either the XML attribute text or
-            // the text between the XML tags.
-
-            // In order to allow Zend_Json_Expr from xml, we check if the node
-            // matchs the pattern that try to detect if it is a new Zend_Json_Expr
-            // if it matches, we return a new Zend_Json_Expr instead of a text node
-            $pattern = '/^[\s]*new Zend_Json_Expr[\s]*\([\s]*[\"\']{1}(.*)[\"\']{1}[\s]*\)[\s]*$/';
-            $matchings = array();
-            $match = preg_match ($pattern, $simpleXmlElementObject, $matchings);
-            if ($match) {
-                return new Expr($matchings[1]);
-            } else {
-                return (trim(strval($simpleXmlElementObject)));
+        if (!count($children)) {
+            if (!empty($attributes) && !$ignoreXmlAttributes) {
+                foreach ($attributes['@attributes'] as $k => $v) {
+                    $attributes['@attributes'][$k] = self::_getXmlValue($v);
+                }
+                if (!empty($value)) {
+                    $attributes['@text'] = $value;
+                }
+                return array($name => $attributes);
             }
 
-        } // End of if (is_array($simpleXmlElementObject))
-    } // End of function _processXml.
-    
+            return array($name => $value);
+        }
+
+        $childArray = array();
+        foreach ($children as $child) {
+            $childname = $child->getName();
+            $element   = self::_processXml($child,$ignoreXmlAttributes,$recursionDepth + 1);
+            if (array_key_exists($childname, $childArray)) {
+                if (empty($subChild[$childname])) {
+                    $childArray[$childname] = array($childArray[$childname]);
+                    $subChild[$childname]   = true;
+                }
+                $childArray[$childname][] = $element[$childname];
+            } else {
+                $childArray[$childname] = $element[$childname];
+            }
+        }
+
+        if (!empty($attributes) && !$ignoreXmlAttributes) {
+            foreach ($attributes['@attributes'] as $k => $v) {
+                $attributes['@attributes'][$k] = self::_getXmlValue($v);
+            }
+            $childArray['@attributes'] = $attributes['@attributes'];
+        }
+
+        if (!empty($value)) {
+            $childArray['@text'] = $value;
+        }
+
+        return array($name => $childArray);
+    }
+
+    /**
+     * fromXml - Converts XML to JSON
+     *
+     * Converts a XML formatted string into a JSON formatted string.
+     * The value returned will be a string in JSON format.
+     *
+     * The caller of this function needs to provide only the first parameter,
+     * which is an XML formatted String. The second parameter is optional, which
+     * lets the user to select if the XML attributes in the input XML string
+     * should be included or ignored in xml2json conversion.
+     *
+     * This function converts the XML formatted string into a PHP array by
+     * calling a recursive (protected static) function in this class. Then, it
+     * converts that PHP array into JSON by calling the "encode" static function.
+     *
+     * NOTE: Encoding native javascript expressions via Zend_Json_Expr is not possible.
+     *
+     * @static
+     * @access public
+     * @param string $xmlStringContents XML String to be converted
+     * @param boolean $ignoreXmlAttributes Include or exclude XML attributes in
+     * the xml2json conversion process.
+     * @return mixed - JSON formatted string on success
+     * @throws \Zend\Json\Exception\RuntimeException if the input not a XML formatted string
+     */
+    public static function fromXml ($xmlStringContents, $ignoreXmlAttributes=true)
+    {
+        // Load the XML formatted string into a Simple XML Element object.
+        $simpleXmlElementObject = simplexml_load_string($xmlStringContents);
+
+        // If it is not a valid XML content, throw an exception.
+        if ($simpleXmlElementObject == null) {
+            throw new RuntimeException('Function fromXml was called with an invalid XML formatted string.');
+        } // End of if ($simpleXmlElementObject == null)
+
+        $resultArray = null;
+
+        // Call the recursive function to convert the XML into a PHP array.
+        $resultArray = self::_processXml($simpleXmlElementObject, $ignoreXmlAttributes);
+
+        // Convert the PHP array to JSON using Zend_Json encode method.
+        // It is just that simple.
+        $jsonStringOutput = self::encode($resultArray);
+        return($jsonStringOutput);
+    }
+
     /**
      * Pretty-print JSON string
-     * 
+     *
      * Use 'indent' option to select indentation string - by default it's a tab
-     * 
+     *
      * @param string $json Original JSON string
      * @param array $options Encoding options
      * @return string
@@ -364,30 +345,38 @@ class JSON
         $tokens = preg_split('|([\{\}\]\[,])|', $json, -1, PREG_SPLIT_DELIM_CAPTURE);
         $result = "";
         $indent = 0;
-        
+
         $ind = "\t";
-        if(isset($options['indent'])) {
+        if (isset($options['indent'])) {
             $ind = $options['indent'];
         }
-        
-        foreach($tokens as $token) {
-            if($token == "") continue;
-            
+
+        $inLiteral = false;
+        foreach ($tokens as $token) {
+            if ($token == "") continue;
+
             $prefix = str_repeat($ind, $indent);
-            if($token == "{" || $token == "[") {
+            if (!$inLiteral && ($token == "{" || $token == "[")) {
                 $indent++;
-                if($result != "" && $result[strlen($result)-1] == "\n") {
+                if ($result != "" && $result[strlen($result)-1] == "\n") {
                     $result .= $prefix;
                 }
                 $result .= "$token\n";
-            } else if($token == "}" || $token == "]") {
+            } elseif (!$inLiteral && ($token == "}" || $token == "]")) {
                 $indent--;
                 $prefix = str_repeat($ind, $indent);
-                $result .= "\n$prefix$token";                
-            } else if($token == ",") {
+                $result .= "\n$prefix$token";
+            } elseif (!$inLiteral && $token == ",") {
                 $result .= "$token\n";
             } else {
-                $result .= $prefix.$token;
+                $result .= ($inLiteral ?  '' : $prefix) . $token;
+
+                // Count # of unescaped double-quotes in token, subtract # of
+                // escaped double-quotes and if the result is odd then we are
+                // inside a string literal
+                if ((substr_count($token, "\"")-substr_count($token, "\\\"")) % 2 != 0) {
+                    $inLiteral = !$inLiteral;
+                }
             }
         }
         return $result;
